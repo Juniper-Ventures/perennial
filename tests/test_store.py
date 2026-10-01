@@ -61,3 +61,27 @@ def test_spent_today_includes_triage_cost(tmp_path):
     s.event("triaged", task="x", decision="do", cost=0.25)
     s.event("source_error", source="y", error="z")
     assert s.spent_today() == 0.25
+
+
+def test_ideas_queue_best_and_ignore_duplicates(tmp_path):
+    s = Store(tmp_path / "s.sqlite")
+    s.add_ideas([
+        {"title": "Weak", "pitch": "p", "value": 2, "effort": 4, "novelty": 2},
+        {"title": "Strong", "pitch": "p", "value": 5, "effort": 1, "novelty": 4},
+        {"title": "Strong", "pitch": "dup", "value": 5, "effort": 1, "novelty": 5},
+    ])
+    assert sorted(s.idea_titles()) == ["Strong", "Weak"]
+    best = s.queue_best_idea()
+    assert best["title"] == "Strong"
+    assert [i["title"] for i in s.ideas(status="queued")] == ["Strong"]
+    assert s.queue_best_idea()["title"] == "Weak"
+    assert s.queue_best_idea() is None
+
+
+def test_approval_lifecycle(tmp_path):
+    s = Store(tmp_path / "s.sqlite")
+    s.add_approval("ap1", task_id="t1", action="publish", payload={"repo": "o/r"})
+    [a] = s.approvals(status="pending")
+    assert a["payload"] == {"repo": "o/r"} and a["action"] == "publish"
+    s.set_approval("ap1", "approved")
+    assert s.approvals(status="pending") == [] and s.approvals(status="approved")[0]["id"] == "ap1"

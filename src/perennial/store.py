@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -25,6 +26,14 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS ideas (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL UNIQUE, pitch TEXT NOT NULL, value INTEGER NOT NULL,
+  effort INTEGER NOT NULL, novelty INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'new', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS approvals (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, action TEXT NOT NULL, payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL
+);
 """
 
 
@@ -145,3 +154,52 @@ class Store:
     def put(self, key: str, value: str) -> None:
         with self.db:
             self.db.execute("INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+
+    # --- ideas -----------------------------------------------------------------------------
+    def add_ideas(self, ideas: list[dict]) -> int:
+        n = 0
+        with self.db:
+            for i in ideas:
+                iid = hashlib.sha256(i["title"].encode()).hexdigest()[:12]
+                cur = self.db.execute(
+                    "INSERT OR IGNORE INTO ideas(id,title,pitch,value,effort,novelty,created_at) VALUES(?,?,?,?,?,?,?)",
+                    (iid, i["title"], i["pitch"], i["value"], i["effort"], i["novelty"], now()),
+                )
+                n += cur.rowcount
+        return n
+
+    def ideas(self, status: str | None = None) -> list[dict]:
+        q, args = ("SELECT * FROM ideas WHERE status=? ORDER BY created_at, id", (status,)) if status else (
+            "SELECT * FROM ideas ORDER BY created_at, id", ())
+        return [dict(r) for r in self.db.execute(q, args).fetchall()]
+
+    def idea_titles(self) -> list[str]:
+        return [r[0] for r in self.db.execute("SELECT title FROM ideas").fetchall()]
+
+    def queue_best_idea(self) -> dict | None:
+        row = self.db.execute(
+            "SELECT * FROM ideas WHERE status='new'"
+            " ORDER BY CAST(value*novelty AS REAL)/MAX(effort,1) DESC, created_at LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        with self.db:
+            self.db.execute("UPDATE ideas SET status='queued' WHERE id=?", (row["id"],))
+        return dict(row) | {"status": "queued"}
+
+    # --- approvals -------------------------------------------------------------------------
+    def add_approval(self, aid: str, task_id: str, action: str, payload: dict) -> None:
+        with self.db:
+            self.db.execute(
+                "INSERT OR IGNORE INTO approvals(id,task_id,action,payload,created_at) VALUES(?,?,?,?,?)",
+                (aid, task_id, action, json.dumps(payload), now()),
+            )
+
+    def approvals(self, status: str | None = None) -> list[dict]:
+        q, args = ("SELECT * FROM approvals WHERE status=? ORDER BY created_at, id", (status,)) if status else (
+            "SELECT * FROM approvals ORDER BY created_at, id", ())
+        return [dict(r) | {"payload": json.loads(r["payload"])} for r in self.db.execute(q, args).fetchall()]
+
+    def set_approval(self, aid: str, status: str) -> None:
+        with self.db:
+            self.db.execute("UPDATE approvals SET status=? WHERE id=?", (status, aid))
