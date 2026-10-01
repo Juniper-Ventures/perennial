@@ -10,6 +10,7 @@ LEVELS = {
     "notify_owner": 1,
     "push_own": 2,
     "open_pr": 2,
+    "post_own_space": 2,  # result pages under the perennial's own root parent (fixed by the owner's relay)
     "message_human": 3,
     "publish": 3,
     "merge_main": 3,

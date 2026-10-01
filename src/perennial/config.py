@@ -32,6 +32,7 @@ class Config:
     idea_context: list = None  # type: ignore[assignment]
     builds_owner: str = ""
     claims: Path | None = None
+    post_results_to_root: bool = False
 
     @property
     def store_path(self) -> Path:
@@ -77,6 +78,7 @@ def load_config(path: Path) -> Config:
             idea_context=list(p.get("idea_context", [])),
             builds_owner=str(p.get("builds_owner", "")),
             claims=Path(p["claims"]).expanduser() if p.get("claims") else None,
+            post_results_to_root=bool(p.get("post_results_to_root", False)),
         )
     except KeyError as e:
         raise ConfigError(f"missing [perennial] key: {e.args[0]}") from None

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from perennial.models import Task
 
 
 class Supervisor:
     def __init__(self, store, sources, policy, executor, outbox, triage_fn, digest_hour: int, name: str,
-                 ideate_fn=None, idea_hour: int = 3, approvals=None, gh=None, claims=None):
+                 ideate_fn=None, idea_hour: int = 3, approvals=None, gh=None, claims=None,
+                 post_results: bool = False):
         self.store, self.sources, self.policy = store, sources, policy
         self.executor, self.outbox, self.triage_fn = executor, outbox, triage_fn
         self.digest_hour, self.name = digest_hour, name
         self.ideate_fn, self.idea_hour, self.approvals, self.gh = ideate_fn, idea_hour, approvals, gh
         self.claims = claims
+        self.post_results = post_results
 
     def tick(self, now: datetime | None = None) -> None:
         now = now or datetime.now()
@@ -60,6 +63,10 @@ class Supervisor:
                 self.claims.release(task["id"], self.name)
             return
         self.store.finish_run(rid, ok=out.ok, cost_usd=out.cost_usd, summary=f"{out.summary}\nworkspace: {ws}")
+        if out.ok and self.post_results:
+            result = Path(ws) / "RESULT.md"
+            body = result.read_text()[:20000] if result.exists() else out.summary
+            self.outbox.root_page(f"{self.name}: {task['title'][:100]}", f"{body}\n\n---\nSource: {task['source']} {task.get('url', '')}")
         if not out.ok and self.claims and self.store.get_task(task["id"])["status"] != "parked":
             self.claims.release(task["id"], self.name)  # let another perennial try
         repo = (out.raw or {}).get("publish")

@@ -30,6 +30,8 @@ idea_context = ["/Users/Shared/perennial/inbox/Today.md"]
 builds_owner = "Juniper-Ventures"
 # Where the owner's relay writes approval answers. Must be readable by the agent.
 approvals = "/Users/Shared/perennial/inbox/approvals"
+# Post each finished task as a page under the root "Results" page (the relay fixes the parent).
+post_results_to_root = true
 # Outbox shared with the owner's relay. Must be outside the agent's home, which the owner cannot read.
 outbox = "/Users/Shared/perennial/outbox"
 
@@ -37,6 +39,11 @@ outbox = "/Users/Shared/perennial/outbox"
 [[sources]]
 type = "markdown"
 path = "/Users/Shared/perennial/inbox/Today.md"
+
+# The Juniper root inbox page, exported by the owner's host job.
+[[sources]]
+type = "markdown"
+path = "/Users/Shared/perennial/inbox/root-inbox.md"
 
 # GitHub issues with this label, read through the bot's gh login. The label is the opt-in.
 [[sources]]
