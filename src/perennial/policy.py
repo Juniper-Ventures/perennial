@@ -38,7 +38,9 @@ class Policy:
     def can_spend(self, store) -> bool:
         return store.spent_today() + self.run_budget <= self.daily_budget
 
-    def require(self, action: str) -> None:
+    def require(self, action: str, approved: bool = False) -> None:
         level = LEVELS[action]
         if level >= 4 or level > self.autonomy:
             raise Blocked(f"{action} (L{level}) not allowed at autonomy L{self.autonomy}")
+        if level == 3 and not approved:
+            raise Blocked(f"{action} (L3) needs owner approval")

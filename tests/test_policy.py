@@ -40,3 +40,15 @@ def test_autonomy_two_allows_build_and_pr_but_not_outside_effects(tmp_path, acti
 
 def test_level_four_actions_are_never_allowed():
     assert LEVELS["send_as_owner"] == 4 and LEVELS["spend_money"] == 4
+
+
+def test_l3_needs_autonomy_three_and_approval(tmp_path):
+    p3 = Policy(stop_file=tmp_path / "STOP", autonomy=3, daily_budget=10, run_budget=2)
+    p2 = Policy(stop_file=tmp_path / "STOP", autonomy=2, daily_budget=10, run_budget=2)
+    with pytest.raises(Blocked):
+        p3.require("publish")
+    p3.require("publish", approved=True)
+    with pytest.raises(Blocked):
+        p2.require("publish", approved=True)
+    with pytest.raises(Blocked):
+        p3.require("spend_money", approved=True)
