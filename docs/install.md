@@ -33,7 +33,7 @@ mkdir -p ~/.perennial && cp config.example.toml ~/.perennial/config.toml && $EDI
 
 ## 3. Host jobs (as you)
 
-Edit `deploy/launchd/ai.perennial.host.plist`. It must point to your todo files and to your notifier CLI. The relay calls `python3 <cli> "<message>" --label <label>`. For approvals it runs `<cli> … --wait` in the background and writes your reply into the approvals dir. Reply YES to approve; anything else denies. Then:
+Write `~/.perennial-host.env` (see the header of `deploy/host-jobs.sh`): todo files, notifier CLI, and the optional root and Airtable keys. The relay calls `python3 <cli> "<message>" --label <label>`. For approvals it runs `<cli> … --wait` in the background and writes your reply into the approvals dir. Reply YES to approve; anything else denies. Then:
 
 ```bash
 cp deploy/launchd/ai.perennial.host.plist ~/Library/LaunchAgents/
@@ -43,11 +43,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.perennial.host.plist
 ## 4. Start the supervisor (as admin)
 
 ```bash
-sudo cp deploy/launchd/ai.perennial.supervisor.plist /Library/LaunchDaemons/
-sudo launchctl bootstrap system /Library/LaunchDaemons/ai.perennial.supervisor.plist
+deploy/make-supervisor-plist.sh ember /Users/perennial/.perennial/config.toml | sudo tee /Library/LaunchDaemons/ai.perennial.ember.plist >/dev/null
+sudo launchctl bootstrap system /Library/LaunchDaemons/ai.perennial.ember.plist
 ```
 
-The supervisor ticks every 5 minutes, restarts on crash (`KeepAlive`), and keeps the Mac awake while it runs (`caffeinate -i`).
+The supervisor ticks every 5 minutes. It restarts on crash (`KeepAlive`) and keeps the Mac awake while it runs (`caffeinate -i`). It loads secrets such as `CLAUDE_CODE_OAUTH_TOKEN` from `/Users/perennial/.perennial/env` (chmod 600). A dedicated always-on machine is best: see [mac-mini.md](mac-mini.md).
 
 ## Operate
 
@@ -56,7 +56,7 @@ The supervisor ticks every 5 minutes, restarts on crash (`KeepAlive`), and keeps
 | Status | `sudo -u perennial /Users/perennial/perennial/.venv/bin/perennial status` |
 | Stop now (kill switch) | `sudo -u perennial /Users/perennial/perennial/.venv/bin/perennial stop` |
 | Resume | `… perennial start` |
-| Remove completely | `sudo launchctl bootout system/ai.perennial.supervisor` and delete the user in System Settings |
+| Remove completely | `sudo launchctl bootout system/ai.perennial.<name>` and delete the user in System Settings |
 | Status page | `sudo -u perennial … perennial dashboard` → http://127.0.0.1:8787 (read-only) |
 | Ideas now | `sudo -u perennial … perennial ideate` |
 | Logs | `/Users/perennial/.perennial/supervisor.log`, plus the `events` table in `store.sqlite` |

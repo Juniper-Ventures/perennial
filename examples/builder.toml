@@ -32,6 +32,8 @@ builds_owner = "Juniper-Ventures"
 approvals = "/Users/Shared/perennial/inbox/approvals"
 # Shared by all perennials on this machine: the first to claim a task runs it.
 claims = "/Users/Shared/perennial/claims.sqlite"
+# Post each finished task as a page under the root "Results" page (the relay fixes the parent).
+post_results_to_root = true
 # Outbox shared with the owner's relay. Must be outside the agent's home, which the owner cannot read.
 outbox = "/Users/Shared/perennial/outbox"
 
@@ -42,7 +44,12 @@ path = "/Users/Shared/perennial/inbox/Today.md"
 
 [[sources]]
 type = "markdown"
-path = "/Users/Shared/perennial/inbox/TO DO.md"
+path = "/Users/Shared/perennial/inbox/airtable-todo.md"
+
+# The Juniper root inbox page, exported by the owner's host job.
+[[sources]]
+type = "markdown"
+path = "/Users/Shared/perennial/inbox/root-inbox.md"
 
 # GitHub issues with this label, read through the bot's gh login. The label is the opt-in.
 [[sources]]
