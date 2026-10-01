@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from perennial.claims import Claims
 from perennial.config import load_config
 from perennial.gate import Approvals, Outbox, distress_ask, distress_send, relay_once
 from perennial.policy import Policy
@@ -50,7 +51,8 @@ def build(cfg):
                       outbox=Outbox(cfg.outbox, policy),
                       triage_fn=lambda t: triage(t, runner, cwd=cfg.workspaces, model=cfg.triage_model, charter=cfg.charter),
                       digest_hour=cfg.digest_hour, name=cfg.name, ideate_fn=ideate, idea_hour=cfg.idea_hour,
-                      approvals=Approvals(cfg.approvals), gh=run_gh)
+                      approvals=Approvals(cfg.approvals), gh=run_gh,
+                      claims=Claims(cfg.claims) if cfg.claims else None)
 
 
 def main(argv: list[str] | None = None) -> int:

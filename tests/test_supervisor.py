@@ -172,3 +172,40 @@ def test_no_publish_request_below_autonomy_three(tmp_path):
     sv, _ = make3(tmp_path, [Src([t("build z")])], autonomy=2)
     sv.tick(now=datetime(2026, 10, 2, 9))
     assert sv.outbox.requests == [] and sv.store.approvals() == []
+
+
+def test_two_perennials_never_run_the_same_task(tmp_path):
+    from perennial.claims import Claims
+
+    tasks = [t("one"), t("two"), t("three")]
+    sups = []
+    for name in ("ember", "sage"):
+        pol = Policy(stop_file=tmp_path / name / "STOP", autonomy=2, daily_budget=10, run_budget=1)
+        sups.append(Supervisor(store=Store(tmp_path / name / "s.sqlite"), sources=[Src(tasks)], policy=pol,
+                               executor=Ex(), outbox=Outbox(), triage_fn=lambda task: (Triage("do", 3, 3, ""), 0),
+                               digest_hour=23, name=name, claims=Claims(tmp_path / "claims.sqlite")))
+    for minute in range(4):
+        for sv in sups:
+            sv.tick(now=datetime(2026, 10, 2, 9, minute))
+    ran = sups[0].executor.ran + sups[1].executor.ran
+    assert sorted(ran) == ["one", "three", "two"]
+    assert sups[0].executor.ran and sups[1].executor.ran
+
+
+class FailEx(Ex):
+    def execute(self, task):
+        self.ran.append(task["title"])
+        return RunOutput(ok=False, cost_usd=0.1, summary="nope"), "/ws"
+
+
+def test_failed_run_releases_claim(tmp_path):
+    from perennial.claims import Claims
+
+    claims = Claims(tmp_path / "claims.sqlite")
+    pol = Policy(stop_file=tmp_path / "STOP", autonomy=2, daily_budget=10, run_budget=1)
+    sv = Supervisor(store=Store(tmp_path / "s.sqlite"), sources=[Src([t("hard")])], policy=pol, executor=FailEx(),
+                    outbox=Outbox(), triage_fn=lambda task: (Triage("do", 3, 3, ""), 0), digest_hour=23,
+                    name="ember", claims=claims)
+    sv.tick(now=datetime(2026, 10, 2, 9))
+    tid = sv.store.tasks()[0]["id"]
+    assert claims.owner_of(tid) is None

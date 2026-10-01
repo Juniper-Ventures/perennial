@@ -7,11 +7,12 @@ from perennial.models import Task
 
 class Supervisor:
     def __init__(self, store, sources, policy, executor, outbox, triage_fn, digest_hour: int, name: str,
-                 ideate_fn=None, idea_hour: int = 3, approvals=None, gh=None):
+                 ideate_fn=None, idea_hour: int = 3, approvals=None, gh=None, claims=None):
         self.store, self.sources, self.policy = store, sources, policy
         self.executor, self.outbox, self.triage_fn = executor, outbox, triage_fn
         self.digest_hour, self.name = digest_hour, name
         self.ideate_fn, self.idea_hour, self.approvals, self.gh = ideate_fn, idea_hour, approvals, gh
+        self.claims = claims
 
     def tick(self, now: datetime | None = None) -> None:
         now = now or datetime.now()
@@ -47,7 +48,7 @@ class Supervisor:
     def _run_one(self) -> None:
         if self.policy.stopped() or not self.policy.can_spend(self.store):
             return
-        task = self.store.next_ready()
+        task = self._claim_next()
         if not task:
             return
         rid = self.store.start_run(task["id"], workspace="")
@@ -55,14 +56,25 @@ class Supervisor:
             out, ws = self.executor.execute(task)
         except Exception as e:
             self.store.finish_run(rid, ok=False, cost_usd=0.0, summary=f"executor error: {e}"[:2000])
+            if self.claims:
+                self.claims.release(task["id"], self.name)
             return
         self.store.finish_run(rid, ok=out.ok, cost_usd=out.cost_usd, summary=f"{out.summary}\nworkspace: {ws}")
+        if not out.ok and self.claims and self.store.get_task(task["id"])["status"] != "parked":
+            self.claims.release(task["id"], self.name)  # let another perennial try
         repo = (out.raw or {}).get("publish")
         if out.ok and repo and self.policy.autonomy >= 3:
             aid = f"pub-{task['id']}"
             self.store.add_approval(aid, task_id=task["id"], action="publish", payload={"repo": repo})
             first = (out.summary or "").strip().splitlines()[0][:300] if out.summary else ""
             self.outbox.request_approval(aid, f"{self.name} built {repo} (private). Make it public?\n{first}")
+
+    def _claim_next(self) -> dict | None:
+        for task in self.store.ready_tasks():
+            if not self.claims or self.claims.claim(task["id"], self.name):
+                return task
+            self.store.set_status(task["id"], "claimed")
+        return None
 
     def _apply_approvals(self) -> None:
         if not self.approvals:

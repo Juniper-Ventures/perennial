@@ -31,6 +31,7 @@ class Config:
     ideas_per_day: int = 5
     idea_context: list = None  # type: ignore[assignment]
     builds_owner: str = ""
+    claims: Path | None = None
 
     @property
     def store_path(self) -> Path:
@@ -75,6 +76,7 @@ def load_config(path: Path) -> Config:
             ideas_per_day=int(p.get("ideas_per_day", 5)),
             idea_context=list(p.get("idea_context", [])),
             builds_owner=str(p.get("builds_owner", "")),
+            claims=Path(p["claims"]).expanduser() if p.get("claims") else None,
         )
     except KeyError as e:
         raise ConfigError(f"missing [perennial] key: {e.args[0]}") from None
