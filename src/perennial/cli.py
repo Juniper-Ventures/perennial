@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from perennial.claims import Claims
 from perennial.config import load_config
 from perennial.gate import Approvals, Outbox, distress_ask, distress_send, relay_once
 from perennial.policy import Policy
@@ -49,8 +50,10 @@ def build(cfg):
     return Supervisor(store=store, sources=load_sources(cfg) + [IdeaSource(store)], policy=policy, executor=executor,
                       outbox=Outbox(cfg.outbox, policy),
                       triage_fn=lambda t: triage(t, runner, cwd=cfg.workspaces, model=cfg.triage_model, charter=cfg.charter),
-                      digest_hour=cfg.digest_hour, name=cfg.name, ideate_fn=ideate, idea_hour=cfg.idea_hour,
-                      approvals=Approvals(cfg.approvals), gh=run_gh)
+                      digest_hour=cfg.digest_hour, name=cfg.name,
+                      ideate_fn=ideate if cfg.ideas_per_day > 0 else None, idea_hour=cfg.idea_hour,
+                      approvals=Approvals(cfg.approvals), gh=run_gh,
+                      claims=Claims(cfg.claims) if cfg.claims else None)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -68,10 +71,19 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--cli", type=Path, required=True, help="path to distress_call cli.py")
     rp.add_argument("--approvals", type=Path, default=None, help="dir for owner answers; enables approval requests")
     sub.add_parser("ideate", help="run ideation now and queue the best idea")
+    xp = sub.add_parser("export-airtable", help="host side: write an Airtable todo table as a Markdown checklist")
+    xp.add_argument("--base", required=True)
+    xp.add_argument("--table", required=True)
+    xp.add_argument("--out", type=Path, required=True)
+    xp.add_argument("--owner-email", default=None)
     dp = sub.add_parser("dashboard", help="read-only status page on 127.0.0.1")
     dp.add_argument("--port", type=int, default=8787)
     a = ap.parse_args(argv)
 
+    if a.cmd == "export-airtable":
+        from perennial.airtable import export
+        print(export(a.base, a.table, a.out, owner_email=a.owner_email))
+        return 0
     if a.cmd == "relay":
         ask = distress_ask(a.cli, a.approvals) if a.approvals else None
         print(relay_once(a.outbox, distress_send(a.cli), ask=ask))

@@ -95,13 +95,17 @@ class Store:
                 (status, tr.decision, tr.value, tr.effort, tr.reason, now(), tid),
             )
 
-    def next_ready(self) -> dict | None:
-        row = self.db.execute(
+    def ready_tasks(self) -> list[dict]:
+        rows = self.db.execute(
             "SELECT * FROM tasks WHERE status='ready' AND attempts < ?"
-            " ORDER BY CAST(value AS REAL)/MAX(effort,1) DESC, created_at LIMIT 1",
+            " ORDER BY CAST(value AS REAL)/MAX(effort,1) DESC, created_at",
             (MAX_ATTEMPTS,),
-        ).fetchone()
-        return dict(row) if row else None
+        )
+        return [dict(r) for r in rows.fetchall()]
+
+    def next_ready(self) -> dict | None:
+        ready = self.ready_tasks()
+        return ready[0] if ready else None
 
     def start_run(self, tid: str, workspace: str) -> int:
         with self.db:
