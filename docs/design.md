@@ -34,7 +34,7 @@ What we change: it runs locally on our own hardware, uses any model (Claude Code
 ## 3. Architecture
 
 ```
-            ┌──────────────── host (esben user) ─────────────────┐
+            ┌──────────────── host (owner user)  ─────────────────┐
             │  sources (read-only snapshots)    gate service      │
             │  Today.md · GH issues · root      notify · approve  │
             └───────────┬──────────────────────────▲──────────────┘
@@ -68,7 +68,7 @@ What we change: it runs locally on our own hardware, uses any model (Claude Code
 
 ## 4. The autonomy model
 
-The goal is full autonomy for building, without the failure modes we documented in the rogue-agents investigation this week: sandbox escape, account creation, data sent out through third parties. The answer is to put the boundary around the **machine**, not around each action.
+The goal is full autonomy for building, without the failure modes seen in public investigations of rogue agents in 2026 ([Asymmetric Security](https://www.asymmetricsecurity.com/newsroom/rogue-agents-investigation/), [Transluce](https://transluce.org/us-canada-gov)): sandbox escape, account creation, data sent out through third parties. The answer is to put the boundary around the **machine**, not around each action.
 
 | Level | Actions | Default |
 |---|---|---|
@@ -109,6 +109,6 @@ Every level is set per perennial in config. A perennial can be raised to allow L
 
 ## 7. Known constraints
 
-- **A laptop is not always on.** It sleeps, travels and runs low on disk (57 GB free). Phase 1 uses `caffeinate` and launchd. Real 24/7 needs phase 4.
+- **A laptop is not always on.** It sleeps, travels and has limited disk. Phase 1 uses `caffeinate` and launchd. Real 24/7 needs phase 4.
 - **One Telegram poller per bot token.** Perennial must never poll Telegram. It sends through the existing `distress_call` CLI. Replies arrive through the existing receiver.
 - **Claude subscription limits.** Heavy unattended use hits rate limits. The budget caps and the cheap triage model keep usage bounded.

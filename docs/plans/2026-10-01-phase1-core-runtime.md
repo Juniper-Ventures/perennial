@@ -207,7 +207,7 @@ from perennial.config import ConfigError, load_config
 GOOD = """
 [perennial]
 name = "ember"
-charter = "You maintain Esben's side projects."
+charter = "You maintain the owner's side projects."
 autonomy = 2
 daily_budget_usd = 20
 run_budget_usd = 3
@@ -597,12 +597,12 @@ from perennial.sources.markdown import MarkdownSource
 
 DOC = """# 2026-10-01
 ### Plan
-- [ ] **Send FAR invoice** · today
+- [ ] **Send the invoice** · today
 - [x] Already done
   - [ ] Nested sub-item
 Some text - [ ] not a checklist
 ### Ideas
-- [ ] Build a CLI for kranpub
+- [ ] Build a CLI for the blog
 """
 
 
@@ -611,8 +611,8 @@ def test_reads_open_checklist_items_with_heading_context(tmp_path):
     p.write_text(DOC)
     tasks = MarkdownSource(p).fetch()
     titles = [t.title for t in tasks]
-    assert titles == ["Send FAR invoice · today", "Nested sub-item", "Build a CLI for kranpub"]
-    assert tasks[2].body == "Section: Ideas\nBuild a CLI for kranpub"
+    assert titles == ["Send the invoice · today", "Nested sub-item", "Build a CLI for the blog"]
+    assert tasks[2].body == "Section: Ideas\nBuild a CLI for the blog"
     assert tasks[0].source == "markdown:Today.md"
 
 
@@ -1005,7 +1005,7 @@ Expected: 2 passed
 Run: `cd /tmp && claude -p "say ok" --output-format json --model haiku --max-budget-usd 0.05 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(sorted(d))'`
 Expected: the keys include `result`, `total_cost_usd`, `is_error` (verified 1 Oct 2026 on Claude Code 2.1.281). An API error still exits with valid JSON: `subtype: "success"` but `is_error: true` and `result: "Credit balance is too low"`. The runner treats it as a failed run. Warnings go to stderr, so parsing stdout is safe.
 
-**Auth gotcha (seen on the owner's machine):** if `ANTHROPIC_API_KEY` is set, it overrides the claude.ai subscription login. On the owner's account that key has no credit. The `perennial` user must NOT inherit that variable. It logs in with `claude` once, or gets its own funded key.
+**Auth gotcha:** if `ANTHROPIC_API_KEY` is set, it overrides the claude.ai subscription login. If that key has no credit, every run fails with "Credit balance is too low". The `perennial` user must NOT inherit that variable. It logs in with `claude` once, or gets its own funded key.
 
 - [ ] **Step 6: Commit**
 
@@ -1839,7 +1839,7 @@ done
   <key>Label</key><string>ai.perennial.host</string>
   <key>ProgramArguments</key><array>
     <string>/bin/bash</string><string>-c</string>
-    <string>$HOME/perennial/deploy/export-snapshots.sh "$HOME/My Drive/notes/All/Today.md"; $HOME/perennial/.venv/bin/perennial relay --outbox /Users/Shared/perennial/outbox --cli $HOME/distress-call/cli.py</string>
+    <string>$HOME/perennial/deploy/export-snapshots.sh "$HOME/notes/Today.md"; $HOME/perennial/.venv/bin/perennial relay --outbox /Users/Shared/perennial/outbox --cli $HOME/distress-call/cli.py</string>
   </array>
   <key>StartInterval</key><integer>300</integer>
   <key>RunAtLoad</key><true/>
