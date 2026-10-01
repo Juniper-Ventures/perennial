@@ -85,3 +85,90 @@ def test_one_digest_per_day_after_digest_hour(tmp_path):
     assert len(sv.outbox.sent) == 1
     label, msg = sv.outbox.sent[0]
     assert label == "perennial-digest" and "ember" in msg and "write docs" in msg
+
+
+class BuildEx:
+    def __init__(self):
+        self.ran = []
+
+    def execute(self, task):
+        self.ran.append(task["title"])
+        return RunOutput(ok=True, cost_usd=0.5, summary="built it", raw={"publish": "Org/perennial-x"}), "/ws"
+
+
+class ApprovalBox(Outbox):
+    def __init__(self):
+        super().__init__()
+        self.requests = []
+
+    def request_approval(self, rid, message):
+        self.requests.append((rid, message))
+
+
+class FakeApprovals:
+    def __init__(self):
+        self.answers = {}
+
+    def answer(self, rid):
+        return self.answers.get(rid)
+
+
+def make3(tmp_path, sources, ideate_fn=None, autonomy=3):
+    from perennial.ideas import IdeaSource
+
+    pol = Policy(stop_file=tmp_path / "STOP", autonomy=autonomy, daily_budget=10, run_budget=2)
+    store = Store(tmp_path / "s.sqlite")
+    gh_calls = []
+    sv = Supervisor(store=store, sources=sources + [IdeaSource(store)], policy=pol, executor=BuildEx(),
+                    outbox=ApprovalBox(), triage_fn=lambda task: (Triage("do", 4, 2, ""), 0.01), digest_hour=23,
+                    name="ember", ideate_fn=ideate_fn, idea_hour=3, approvals=FakeApprovals(),
+                    gh=lambda *a: gh_calls.append(a) or "")
+    return sv, gh_calls
+
+
+def test_nightly_ideation_queues_best_idea_once_per_day_then_builds_it(tmp_path):
+    calls = []
+
+    def ideate(existing):
+        calls.append(existing)
+        return [{"title": "Linter", "pitch": "p", "value": 5, "effort": 1, "novelty": 5},
+                {"title": "Meh", "pitch": "p", "value": 1, "effort": 5, "novelty": 1}], 0.2
+
+    sv, _ = make3(tmp_path, [], ideate)
+    sv.tick(now=datetime(2026, 10, 2, 2))  # before idea_hour
+    assert calls == []
+    sv.tick(now=datetime(2026, 10, 2, 3, 1))
+    sv.tick(now=datetime(2026, 10, 2, 3, 6))  # idea becomes a task, triaged and built
+    sv.tick(now=datetime(2026, 10, 2, 4))
+    assert len(calls) == 1
+    assert sv.executor.ran == ["Linter"]
+    assert sv.store.spent_today() >= 0.2
+
+
+def test_build_requests_publish_and_applies_only_after_yes(tmp_path):
+    sv, gh_calls = make3(tmp_path, [Src([t("build x")])])
+    sv.tick(now=datetime(2026, 10, 2, 9))
+    [(rid, msg)] = sv.outbox.requests
+    assert rid.startswith("pub-") and "Make it public?" in msg
+    sv.tick(now=datetime(2026, 10, 2, 9, 5))
+    assert gh_calls == []  # no answer yet
+    sv.approvals.answers[rid] = True
+    sv.tick(now=datetime(2026, 10, 2, 9, 10))
+    assert gh_calls == [("repo", "edit", "Org/perennial-x", "--visibility", "public",
+                         "--accept-visibility-change-consequences")]
+    assert sv.store.approvals(status="done")[0]["id"] == rid
+
+
+def test_denied_publish_does_nothing(tmp_path):
+    sv, gh_calls = make3(tmp_path, [Src([t("build y")])])
+    sv.tick(now=datetime(2026, 10, 2, 9))
+    rid = sv.outbox.requests[0][0]
+    sv.approvals.answers[rid] = False
+    sv.tick(now=datetime(2026, 10, 2, 9, 5))
+    assert gh_calls == [] and sv.store.approvals(status="denied")[0]["id"] == rid
+
+
+def test_no_publish_request_below_autonomy_three(tmp_path):
+    sv, _ = make3(tmp_path, [Src([t("build z")])], autonomy=2)
+    sv.tick(now=datetime(2026, 10, 2, 9))
+    assert sv.outbox.requests == [] and sv.store.approvals() == []

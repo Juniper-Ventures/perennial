@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 SOURCE_TYPES = {"markdown", "github"}
-MAX_AUTONOMY_PHASE_1 = 2  # L3 (outside effects) needs the approval gate from phase 2
+MAX_AUTONOMY = 3  # L3 (outside effects) always needs owner approval; L4 is never allowed
 
 
 class ConfigError(ValueError):
@@ -26,6 +26,11 @@ class Config:
     home: Path
     sources: list[dict]
     outbox_override: Path | None = None
+    approvals_override: Path | None = None
+    idea_hour: int = 3
+    ideas_per_day: int = 5
+    idea_context: list = None  # type: ignore[assignment]
+    builds_owner: str = ""
 
     @property
     def store_path(self) -> Path:
@@ -38,6 +43,10 @@ class Config:
     @property
     def outbox(self) -> Path:
         return self.outbox_override or self.home / "outbox"
+
+    @property
+    def approvals(self) -> Path:
+        return self.approvals_override or self.home / "approvals"
 
     @property
     def stop_file(self) -> Path:
@@ -61,11 +70,16 @@ def load_config(path: Path) -> Config:
             home=Path(p["home"]).expanduser(),
             sources=list(data.get("sources") or []),
             outbox_override=Path(p["outbox"]).expanduser() if p.get("outbox") else None,
+            approvals_override=Path(p["approvals"]).expanduser() if p.get("approvals") else None,
+            idea_hour=int(p.get("idea_hour", 3)),
+            ideas_per_day=int(p.get("ideas_per_day", 5)),
+            idea_context=list(p.get("idea_context", [])),
+            builds_owner=str(p.get("builds_owner", "")),
         )
     except KeyError as e:
         raise ConfigError(f"missing [perennial] key: {e.args[0]}") from None
-    if not 0 <= cfg.autonomy <= MAX_AUTONOMY_PHASE_1:
-        raise ConfigError(f"autonomy must be 0..{MAX_AUTONOMY_PHASE_1} in phase 1, got {cfg.autonomy}")
+    if not 0 <= cfg.autonomy <= MAX_AUTONOMY:
+        raise ConfigError(f"autonomy must be 0..{MAX_AUTONOMY}, got {cfg.autonomy}")
     if cfg.run_budget_usd > cfg.daily_budget_usd:
         raise ConfigError("run_budget_usd cannot exceed daily_budget_usd")
     for s in cfg.sources:

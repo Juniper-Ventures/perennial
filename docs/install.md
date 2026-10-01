@@ -33,7 +33,7 @@ mkdir -p ~/.perennial && cp config.example.toml ~/.perennial/config.toml && $EDI
 
 ## 3. Host jobs (as you)
 
-Edit `deploy/launchd/ai.perennial.host.plist`. It must point to your todo files and to your notifier CLI. The relay calls `python3 <cli> "<message>" --label <label>`. Then:
+Edit `deploy/launchd/ai.perennial.host.plist`. It must point to your todo files and to your notifier CLI. The relay calls `python3 <cli> "<message>" --label <label>`. For approvals it runs `<cli> … --wait` in the background and writes your reply into the approvals dir. Reply YES to approve; anything else denies. Then:
 
 ```bash
 cp deploy/launchd/ai.perennial.host.plist ~/Library/LaunchAgents/
@@ -57,4 +57,6 @@ The supervisor ticks every 5 minutes, restarts on crash (`KeepAlive`), and keeps
 | Stop now (kill switch) | `sudo -u perennial /Users/perennial/perennial/.venv/bin/perennial stop` |
 | Resume | `… perennial start` |
 | Remove completely | `sudo launchctl bootout system/ai.perennial.supervisor` and delete the user in System Settings |
+| Status page | `sudo -u perennial … perennial dashboard` → http://127.0.0.1:8787 (read-only) |
+| Ideas now | `sudo -u perennial … perennial ideate` |
 | Logs | `/Users/perennial/.perennial/supervisor.log`, plus the `events` table in `store.sqlite` |
