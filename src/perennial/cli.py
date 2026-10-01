@@ -53,7 +53,8 @@ def build(cfg):
                       digest_hour=cfg.digest_hour, name=cfg.name,
                       ideate_fn=ideate if cfg.ideas_per_day > 0 else None, idea_hour=cfg.idea_hour,
                       approvals=Approvals(cfg.approvals), gh=run_gh,
-                      claims=Claims(cfg.claims) if cfg.claims else None)
+                      claims=Claims(cfg.claims) if cfg.claims else None,
+                      post_results=cfg.post_results_to_root)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -70,6 +71,11 @@ def main(argv: list[str] | None = None) -> int:
     rp.add_argument("--outbox", type=Path, required=True)
     rp.add_argument("--cli", type=Path, required=True, help="path to distress_call cli.py")
     rp.add_argument("--approvals", type=Path, default=None, help="dir for owner answers; enables approval requests")
+    rp.add_argument("--root-parent", default=None, help="root page id that result pages go under; needs ROOT_API_KEY")
+    rp.add_argument("--root-actor", default="perennial")
+    rx = sub.add_parser("export-root", help="host side: write a root inbox page as a Markdown checklist")
+    rx.add_argument("--page", required=True)
+    rx.add_argument("--out", type=Path, required=True)
     sub.add_parser("ideate", help="run ideation now and queue the best idea")
     xp = sub.add_parser("export-airtable", help="host side: write an Airtable todo table as a Markdown checklist")
     xp.add_argument("--base", required=True)
@@ -80,13 +86,21 @@ def main(argv: list[str] | None = None) -> int:
     dp.add_argument("--port", type=int, default=8787)
     a = ap.parse_args(argv)
 
+    if a.cmd == "export-root":
+        from perennial.root import export_inbox
+        print(export_inbox(a.page, a.out))
+        return 0
     if a.cmd == "export-airtable":
         from perennial.airtable import export
         print(export(a.base, a.table, a.out, owner_email=a.owner_email))
         return 0
     if a.cmd == "relay":
         ask = distress_ask(a.cli, a.approvals) if a.approvals else None
-        print(relay_once(a.outbox, distress_send(a.cli), ask=ask))
+        post_root = None
+        if a.root_parent:
+            from perennial.root import root_poster
+            post_root = root_poster(a.root_parent, a.root_actor)
+        print(relay_once(a.outbox, distress_send(a.cli), ask=ask, post_root=post_root))
         return 0
     cfg = load_config(a.config)
     if a.cmd == "stop":

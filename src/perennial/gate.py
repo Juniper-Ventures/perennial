@@ -18,7 +18,7 @@ from pathlib import Path
 
 from perennial.policy import Blocked
 
-ALLOWED_KINDS = {"notify", "approve"}
+ALLOWED_KINDS = {"notify", "approve", "root_page"}
 APPROVE_WORDS = ("yes", "ja", "y", "ok", "approve", "approved", "godkend", "godkendt")
 APPROVAL_TIMEOUT_S = 900
 MAX_LEN = 3500
@@ -31,6 +31,11 @@ class Outbox:
     def notify(self, message: str, label: str) -> Path:
         self.policy.require("notify_owner")
         return self._write({"kind": "notify", "label": label, "message": message})
+
+    def root_page(self, title: str, markdown: str) -> Path:
+        """Post a result page into the perennial's own root area (the relay fixes the parent page)."""
+        self.policy.require("post_own_space")
+        return self._write({"kind": "root_page", "title": title[:150], "message": markdown[:20000]})
 
     def request_approval(self, req_id: str, message: str) -> Path:
         """Ask the owner to approve an L3 action. Only meaningful at autonomy 3."""
@@ -82,7 +87,8 @@ def distress_ask(cli: Path, approvals: Path) -> Callable[[str, str, str], None]:
 
 
 def relay_once(outbox: Path, send: Callable[[str, str], None],
-               ask: Callable[[str, str, str], None] | None = None) -> int:
+               ask: Callable[[str, str, str], None] | None = None,
+               post_root: Callable[[str, str], str] | None = None) -> int:
     outbox = Path(outbox)
     (outbox / "sent").mkdir(exist_ok=True)
     (outbox / "rejected").mkdir(exist_ok=True)
@@ -95,10 +101,14 @@ def relay_once(outbox: Path, send: Callable[[str, str], None],
             ok = False
         if ok and req["kind"] == "approve" and (ask is None or not isinstance(req.get("id"), str)):
             ok = False
+        if ok and req["kind"] == "root_page" and (post_root is None or not isinstance(req.get("title"), str)):
+            ok = False
         if not ok:
             shutil.move(f, outbox / "rejected" / f.name)
             continue
-        if req["kind"] == "approve":
+        if req["kind"] == "root_page":
+            post_root(req["title"][:150], req["message"][:20000])
+        elif req["kind"] == "approve":
             ask(f"{req['message'][:MAX_LEN - 60]}\nReply YES to approve, anything else to deny.", "perennial-approve", req["id"])
         else:
             send(req["message"][:MAX_LEN], str(req.get("label", "perennial"))[:40])

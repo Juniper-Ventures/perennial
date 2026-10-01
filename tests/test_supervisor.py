@@ -209,3 +209,42 @@ def test_failed_run_releases_claim(tmp_path):
     sv.tick(now=datetime(2026, 10, 2, 9))
     tid = sv.store.tasks()[0]["id"]
     assert claims.owner_of(tid) is None
+
+
+class RootBox(Outbox):
+    def __init__(self):
+        super().__init__()
+        self.pages = []
+
+    def root_page(self, title, markdown):
+        self.pages.append((title, markdown))
+
+
+class ResultEx(Ex):
+    def __init__(self, ws):
+        super().__init__()
+        self.ws = ws
+
+    def execute(self, task):
+        self.ran.append(task["title"])
+        (self.ws / "RESULT.md").write_text("# Did it\nAll tests pass.")
+        return RunOutput(ok=True, cost_usd=0.3, summary="short"), self.ws
+
+
+def test_successful_run_posts_result_page_when_enabled(tmp_path):
+    pol = Policy(stop_file=tmp_path / "STOP", autonomy=2, daily_budget=10, run_budget=1)
+    sv = Supervisor(store=Store(tmp_path / "s.sqlite"), sources=[Src([t("write docs")])], policy=pol,
+                    executor=ResultEx(tmp_path), outbox=RootBox(), triage_fn=lambda task: (Triage("do", 3, 3, ""), 0),
+                    digest_hour=23, name="forge", post_results=True)
+    sv.tick(now=datetime(2026, 10, 2, 9))
+    [(title, md)] = sv.outbox.pages
+    assert title == "forge: write docs" and "All tests pass." in md
+
+
+def test_no_result_page_by_default(tmp_path):
+    pol = Policy(stop_file=tmp_path / "STOP", autonomy=2, daily_budget=10, run_budget=1)
+    sv = Supervisor(store=Store(tmp_path / "s.sqlite"), sources=[Src([t("write docs")])], policy=pol,
+                    executor=ResultEx(tmp_path), outbox=RootBox(), triage_fn=lambda task: (Triage("do", 3, 3, ""), 0),
+                    digest_hour=23, name="forge")
+    sv.tick(now=datetime(2026, 10, 2, 9))
+    assert sv.outbox.pages == []

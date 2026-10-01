@@ -33,7 +33,7 @@ def test_relay_sends_allowlisted_and_quarantines_the_rest(tmp_path):
     assert n == 1 and sent == [("hi", "perennial-digest")]
     assert sorted(p.name for p in (box / "sent").iterdir()) == ["1.json"]
     assert sorted(p.name for p in (box / "rejected").iterdir()) == ["2.json", "3.json"]
-    assert ALLOWED_KINDS == {"notify", "approve"}
+    assert ALLOWED_KINDS == {"notify", "approve", "root_page"}
 
 
 def test_relay_truncates_long_messages(tmp_path):
@@ -75,3 +75,18 @@ def test_relay_without_ask_rejects_approvals(tmp_path):
     (box / "1.json").write_text(json.dumps({"kind": "approve", "id": "a", "message": "m"}))
     assert relay_once(box, send=lambda m, l: None) == 0
     assert [p.name for p in (box / "rejected").iterdir()] == ["1.json"]
+
+
+def test_root_page_kind_goes_to_root_poster_only_when_enabled(tmp_path):
+    ob = Outbox(tmp_path / "outbox", pol(tmp_path))
+    ob.root_page("forge: built x", "# Result\nok")
+    posted = []
+    assert relay_once(tmp_path / "outbox", send=lambda m, l: None) == 0  # no poster -> rejected
+    ob.root_page("forge: built y", "# Result\nfine")
+    n = relay_once(tmp_path / "outbox", send=lambda m, l: None, post_root=lambda t, md: posted.append((t, md)))
+    assert n == 1 and posted == [("forge: built y", "# Result\nfine")]
+
+
+def test_root_page_needs_autonomy_two(tmp_path):
+    with pytest.raises(Blocked):
+        Outbox(tmp_path / "outbox", pol(tmp_path, autonomy=1)).root_page("t", "m")
