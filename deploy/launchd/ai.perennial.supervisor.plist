@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.perennial.supervisor</string>
+  <key>UserName</key><string>perennial</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/bin/caffeinate</string><string>-i</string>
+    <string>/Users/perennial/perennial/.venv/bin/perennial</string><string>loop</string><string>--every</string><string>300</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>PATH</key><string>/Users/perennial/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>HOME</key><string>/Users/perennial</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>/Users/perennial/.perennial/supervisor.log</string>
+  <key>StandardErrorPath</key><string>/Users/perennial/.perennial/supervisor.log</string>
+</dict></plist>

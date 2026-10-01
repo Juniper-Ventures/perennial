@@ -54,3 +54,10 @@ def test_kv_roundtrip(tmp_path):
     assert s.get("digest_date") is None
     s.put("digest_date", "2026-10-01")
     assert s.get("digest_date") == "2026-10-01"
+
+
+def test_spent_today_includes_triage_cost(tmp_path):
+    s = Store(tmp_path / "s.sqlite")
+    s.event("triaged", task="x", decision="do", cost=0.25)
+    s.event("source_error", source="y", error="z")
+    assert s.spent_today() == 0.25

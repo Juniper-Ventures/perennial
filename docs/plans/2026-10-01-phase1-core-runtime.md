@@ -1884,3 +1884,10 @@ git add deploy docs/install.md && git commit -m "feat: sandbox user, snapshot ex
 
 - **Spec coverage:** always-on (Task 14, launchd KeepAlive); reads todos (Tasks 5–6); acts alone (Tasks 9, 11, 12); reports (Tasks 10, 12); kill switch and budget (Tasks 7, 12, 13); sandbox (Task 14); public repo with private config (Task 1 `.gitignore`, Task 3 config in `~/.perennial`). Ideas and builds are phase 2 by design.
 - **Known gaps carried to phase 2:** the approval gate for L3 actions; idea generation; true spend accounting for timed-out runs; a UTC/local digest boundary.
+
+## Deviations during implementation (1 Oct 2026)
+
+- `Config.outbox` can point outside the agent's home (`outbox = "/Users/Shared/perennial/outbox"`). The owner's relay cannot read `/Users/perennial`. A test was added.
+- `Store.spent_today()` now also counts triage spend (logged on `triaged` events). Before this, the budget ignored triage calls. A test was added.
+- The supervisor plist wraps the loop in `caffeinate -i`.
+- Live smoke (Task 15, steps 3–5) passed on a dev machine as the owner user, not yet as the sandbox user. The run triaged 2 todos: it did the code task (hello.py plus a passing test, $0.21) and skipped the errand. The digest went through the relay, and the kill switch blocked the next tick. Steps 1–2, 6 and 7 need the sandbox user and the GitHub App.
