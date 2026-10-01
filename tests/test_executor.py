@@ -60,3 +60,39 @@ def test_github_task_clones_branches_and_opens_pr_when_changed(tmp_path):
 
 def test_prompt_demands_result_file():
     assert "RESULT.md" in work_prompt(task())
+
+
+def idea_task():
+    return {"id": "idea42", "source": "idea:local", "ext_id": "i1", "title": "Tiny CSV linter!", "body": "Build it", "url": ""}
+
+
+def test_idea_build_inits_repo_commits_and_stays_local_without_owner(tmp_path):
+    git_calls, gh_calls = [], []
+
+    def git(*args, cwd=None):
+        git_calls.append(args)
+        return " M x\n" if args[:2] == ("status", "--porcelain") else ""
+
+    ex = Executor(runner=FakeRunner(touch="README.md"), policy=pol(tmp_path), workspaces=tmp_path / "ws", model="m",
+                  run_budget=2, timeout_s=60, charter="c", git=git, gh=lambda *a: gh_calls.append(a) or "")
+    out, ws = ex.execute(idea_task())
+    assert ("init", "-q") in git_calls
+    assert any("commit" in c for c in git_calls)
+    assert gh_calls == [] and "publish" not in out.raw
+
+
+def test_idea_build_pushes_private_repo_and_requests_publish(tmp_path):
+    gh_calls = []
+
+    def gh(*args):
+        gh_calls.append(args)
+        return "https://github.com/Org/perennial-tiny-csv-linter\n"
+
+    ex = Executor(runner=FakeRunner(touch="README.md"), policy=pol(tmp_path), workspaces=tmp_path / "ws", model="m",
+                  run_budget=2, timeout_s=60, charter="c",
+                  git=lambda *a, cwd=None: " M x\n" if a[:2] == ("status", "--porcelain") else "", gh=gh, builds_owner="Org")
+    out, _ = ex.execute(idea_task())
+    create = gh_calls[0]
+    assert create[:3] == ("repo", "create", "Org/perennial-tiny-csv-linter") and "--private" in create and "--public" not in create
+    assert out.raw["publish"] == "Org/perennial-tiny-csv-linter"
+    assert "perennial-tiny-csv-linter" in out.summary
