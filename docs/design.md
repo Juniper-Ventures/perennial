@@ -34,7 +34,7 @@ What we change: it runs locally on our own hardware, uses any model (Claude Code
 ## 3. Architecture
 
 ```
-            ┌──────────────── host (owner user) ─────────────────┐
+            ┌──────────────── host (owner user) ──────────────────┐
             │  sources (read-only snapshots)    gate service      │
             │  Today.md · GH issues · root      notify · approve  │
             └───────────┬──────────────────────────▲──────────────┘
