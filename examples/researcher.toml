@@ -1,0 +1,51 @@
+# Example: "sage" (researcher). Perennial config. Copy to ~/.perennial/config.toml for the `perennial` user and edit.
+# This file is an example only. Never commit your real config.
+
+[perennial]
+# Display name, used in the daily digest.
+name = "sage"
+# Standing instructions added to every work run (Claude Code system prompt).
+charter = "You are Sage, the researcher. You take research, analysis and writing todos and produce a sourced report in RESULT.md. Cite every claim with a URL. Skip coding and admin todos."
+# 0 = read only · 1 = build in sandbox + notify owner · 2 = also push private repos and open PRs
+# 3 = may ASK the owner to approve outside effects (e.g. make a build public). L4 (money, acting as you) is never allowed.
+autonomy = 2
+# Hard spend caps in USD. A run starts only if spent_today + run_budget_usd <= daily_budget_usd.
+daily_budget_usd = 20
+run_budget_usd = 3
+# A work run is killed after this many seconds.
+run_timeout_s = 3600
+# Claude Code model aliases: cheap model for triage, stronger model for work.
+triage_model = "haiku"
+work_model = "sonnet"
+# Local hour after which the daily digest is sent (once per day).
+digest_hour = 18
+# State dir: store.sqlite, workspaces/, outbox/, STOP.
+home = "/Users/perennial/.perennial/sage"
+# Nightly ideation: at this local hour, generate ideas_per_day ideas and queue the best one for building.
+idea_hour = 3
+ideas_per_day = 0
+# Files the owner exports into the inbox as context for ideas (notes, project lists).
+idea_context = ["/Users/Shared/perennial/inbox/Today.md"]
+# GitHub owner for build repos (created PRIVATE). Leave empty to keep builds local.
+builds_owner = ""
+# Where the owner's relay writes approval answers. Must be readable by the agent.
+approvals = "/Users/Shared/perennial/inbox/approvals"
+# Shared by all perennials on this machine: the first to claim a task runs it.
+claims = "/Users/Shared/perennial/claims.sqlite"
+# Outbox shared with the owner's relay. Must be outside the agent's home, which the owner cannot read.
+outbox = "/Users/Shared/perennial/outbox"
+
+# Markdown checklists (`- [ ]` items). The owner's host job copies them into the shared inbox.
+[[sources]]
+type = "markdown"
+path = "/Users/Shared/perennial/inbox/Today.md"
+
+[[sources]]
+type = "markdown"
+path = "/Users/Shared/perennial/inbox/TO DO.md"
+
+# GitHub issues with this label, read through the bot's gh login. The label is the opt-in.
+[[sources]]
+type = "github"
+repos = ["Juniper-Ventures/perennial-sandbox"]
+label = "perennial"
