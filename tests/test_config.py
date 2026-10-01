@@ -51,3 +51,9 @@ def test_unknown_source_type_is_rejected(tmp_path):
     p.write_text(GOOD.format(home=tmp_path).replace('type = "github"', 'type = "gmail"'))
     with pytest.raises(ConfigError, match="gmail"):
         load_config(p)
+
+
+def test_outbox_can_point_at_shared_dir(tmp_path):
+    p = tmp_path / "config.toml"
+    p.write_text(GOOD.format(home=tmp_path).replace('digest_hour = 18', 'digest_hour = 18\noutbox = "/Users/Shared/perennial/outbox"'))
+    assert str(load_config(p).outbox) == "/Users/Shared/perennial/outbox"

@@ -25,6 +25,7 @@ class Config:
     digest_hour: int
     home: Path
     sources: list[dict]
+    outbox_override: Path | None = None
 
     @property
     def store_path(self) -> Path:
@@ -36,7 +37,7 @@ class Config:
 
     @property
     def outbox(self) -> Path:
-        return self.home / "outbox"
+        return self.outbox_override or self.home / "outbox"
 
     @property
     def stop_file(self) -> Path:
@@ -59,6 +60,7 @@ def load_config(path: Path) -> Config:
             digest_hour=int(p["digest_hour"]),
             home=Path(p["home"]).expanduser(),
             sources=list(data.get("sources") or []),
+            outbox_override=Path(p["outbox"]).expanduser() if p.get("outbox") else None,
         )
     except KeyError as e:
         raise ConfigError(f"missing [perennial] key: {e.args[0]}") from None
