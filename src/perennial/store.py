@@ -128,13 +128,13 @@ class Store:
                 )
 
     def spent_today(self) -> float:
-        """Work runs plus triage calls (logged as 'triaged' events with a cost)."""
+        """Work runs plus triage and ideation calls (logged as events with a cost)."""
         day = now()[:10]
         (runs,) = self.db.execute(
             "SELECT COALESCE(SUM(cost_usd),0) FROM runs WHERE substr(started_at,1,10)=?", (day,)
         ).fetchone()
         (tri,) = self.db.execute(
-            "SELECT COALESCE(SUM(json_extract(data,'$.cost')),0) FROM events WHERE kind='triaged' AND substr(ts,1,10)=?",
+            "SELECT COALESCE(SUM(json_extract(data,'$.cost')),0) FROM events WHERE kind IN ('triaged','ideated') AND substr(ts,1,10)=?",
             (day,),
         ).fetchone()
         return float(runs) + float(tri)
