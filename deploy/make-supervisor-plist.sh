@@ -21,7 +21,7 @@ cat <<PLIST
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>60</integer>
-  <key>StandardOutPath</key><string>/Users/perennial/.perennial/${NAME}.log</string>
-  <key>StandardErrorPath</key><string>/Users/perennial/.perennial/${NAME}.log</string>
+  <key>StandardOutPath</key><string>/Users/Shared/perennial/logs/${NAME}.log</string>
+  <key>StandardErrorPath</key><string>/Users/Shared/perennial/logs/${NAME}.log</string>
 </dict></plist>
 PLIST
