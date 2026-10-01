@@ -6,9 +6,9 @@
 name = "ember"
 # Standing instructions added to every work run (Claude Code system prompt).
 charter = "You maintain the owner's side projects. Prefer small, tested, reversible changes."
-# 0 = read only · 1 = build in sandbox + notify owner · 2 = also push to own repos and open PRs.
-# Phase 1 caps this at 2. Outside effects (L3) need the approval gate from phase 2.
-autonomy = 2
+# 0 = read only · 1 = build in sandbox + notify owner · 2 = also push private repos and open PRs
+# 3 = may ASK the owner to approve outside effects (e.g. make a build public). L4 (money, acting as you) is never allowed.
+autonomy = 3
 # Hard spend caps in USD. A run starts only if spent_today + run_budget_usd <= daily_budget_usd.
 daily_budget_usd = 20
 run_budget_usd = 3
@@ -21,6 +21,15 @@ work_model = "sonnet"
 digest_hour = 18
 # State dir: store.sqlite, workspaces/, outbox/, STOP.
 home = "/Users/perennial/.perennial"
+# Nightly ideation: at this local hour, generate ideas_per_day ideas and queue the best one for building.
+idea_hour = 3
+ideas_per_day = 5
+# Files the owner exports into the inbox as context for ideas (notes, project lists).
+idea_context = ["/Users/Shared/perennial/inbox/Today.md"]
+# GitHub owner for build repos (created PRIVATE). Leave empty to keep builds local.
+builds_owner = "Juniper-Ventures"
+# Where the owner's relay writes approval answers. Must be readable by the agent.
+approvals = "/Users/Shared/perennial/inbox/approvals"
 # Outbox shared with the owner's relay. Must be outside the agent's home, which the owner cannot read.
 outbox = "/Users/Shared/perennial/outbox"
 

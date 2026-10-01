@@ -52,3 +52,13 @@
 9. **Dashboard:** render shows the name, spend, tasks by status, recent runs, ideas and approvals; HTML-escapes all task text. The server binds 127.0.0.1.
 10. **CLI:** `ideate`, `dashboard`, and `relay --approvals DIR`.
 11. **Live smoke:** force an ideation with `perennial ideate`, run ticks until the queued idea is built locally, and check the dashboard renders.
+
+## Result (1 Oct 2026)
+
+- 69 tests pass.
+- Live smoke ran as the owner user with builds kept local.
+  - `perennial ideate` generated 3 ideas for $0.05–0.1 and queued the best one: "mdlint-tasks", a Markdown checklist linter.
+  - One `tick` triaged the idea and built it. The result is a stdlib-only package with a CLI, a README and 18 tests, committed in a fresh git repo. Total spend for the day was $0.61.
+  - The 18 tests also pass when run separately.
+  - The status page rendered the run, the ideas and the spend.
+- Not yet exercised live: the private push to `builds_owner` and the Telegram approval round-trip. Both need the sandbox user and the GitHub App. The unit tests and a stubbed detached `ask` cover them.
