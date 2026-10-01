@@ -11,7 +11,9 @@ fi
 # The owner's home must not be readable by the agent (dotfiles hold secrets).
 chmod 700 "/Users/$OWNER"
 # inbox: owner writes snapshots, agent reads. outbox: agent writes, owner's relay reads and moves.
-mkdir -p "$SHARED/inbox" "$SHARED/outbox"
+# logs: agent writes, owner reads (so the owner can debug without sudo).
+mkdir -p "$SHARED/inbox" "$SHARED/outbox" "$SHARED/logs"
 chown "$OWNER":staff "$SHARED/inbox" && chmod 755 "$SHARED/inbox"
 chown perennial:staff "$SHARED/outbox" && chmod 775 "$SHARED/outbox"
+chown perennial:staff "$SHARED/logs" && chmod 755 "$SHARED/logs"
 echo "done. Next: log in as perennial once and run 'claude' and 'gh auth login' with the BOT account."

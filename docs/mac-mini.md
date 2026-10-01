@@ -70,5 +70,6 @@ done
 ## 6. Check
 
 - `sudo -u perennial /Users/perennial/perennial/.venv/bin/perennial --config /Users/perennial/.perennial/forge.toml status`
+- Logs: `tail /Users/Shared/perennial/logs/forge.log` (readable without sudo).
 - Add a bullet to the root **Inbox** page. Within about 10 minutes, a page `agent: task` appears under **Results**.
 - Kill switch for one perennial: `… --config …/forge.toml stop`. For all of them: `sudo launchctl bootout system/ai.perennial.<name>`.

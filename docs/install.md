@@ -59,4 +59,4 @@ The supervisor ticks every 5 minutes. It restarts on crash (`KeepAlive`) and kee
 | Remove completely | `sudo launchctl bootout system/ai.perennial.<name>` and delete the user in System Settings |
 | Status page | `sudo -u perennial … perennial dashboard` → http://127.0.0.1:8787 (read-only) |
 | Ideas now | `sudo -u perennial … perennial ideate` |
-| Logs | `/Users/perennial/.perennial/supervisor.log`, plus the `events` table in `store.sqlite` |
+| Logs | `/Users/Shared/perennial/logs/<name>.log` (owner-readable), plus the `events` table in `store.sqlite` |
