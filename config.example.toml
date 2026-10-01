@@ -1,0 +1,36 @@
+# Perennial config. Copy to ~/.perennial/config.toml for the `perennial` user and edit.
+# This file is an example only. Never commit your real config.
+
+[perennial]
+# Display name, used in the daily digest.
+name = "ember"
+# Standing instructions added to every work run (Claude Code system prompt).
+charter = "You maintain the owner's side projects. Prefer small, tested, reversible changes."
+# 0 = read only · 1 = build in sandbox + notify owner · 2 = also push to own repos and open PRs.
+# Phase 1 caps this at 2. Outside effects (L3) need the approval gate from phase 2.
+autonomy = 2
+# Hard spend caps in USD. A run starts only if spent_today + run_budget_usd <= daily_budget_usd.
+daily_budget_usd = 20
+run_budget_usd = 3
+# A work run is killed after this many seconds.
+run_timeout_s = 3600
+# Claude Code model aliases: cheap model for triage, stronger model for work.
+triage_model = "haiku"
+work_model = "sonnet"
+# Local hour after which the daily digest is sent (once per day).
+digest_hour = 18
+# State dir: store.sqlite, workspaces/, outbox/, STOP.
+home = "/Users/perennial/.perennial"
+# Outbox shared with the owner's relay. Must be outside the agent's home, which the owner cannot read.
+outbox = "/Users/Shared/perennial/outbox"
+
+# Markdown checklists (`- [ ]` items). The owner's host job copies them into the shared inbox.
+[[sources]]
+type = "markdown"
+path = "/Users/Shared/perennial/inbox/Today.md"
+
+# GitHub issues with this label, read through the bot's gh login. The label is the opt-in.
+[[sources]]
+type = "github"
+repos = ["Juniper-Ventures/perennial-sandbox"]
+label = "perennial"
