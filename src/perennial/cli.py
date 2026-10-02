@@ -84,8 +84,21 @@ def main(argv: list[str] | None = None) -> int:
     xp.add_argument("--owner-email", default=None)
     dp = sub.add_parser("dashboard", help="read-only status page on 127.0.0.1")
     dp.add_argument("--port", type=int, default=8787)
+    cp = sub.add_parser("chat", help="personal agent: answer root chat messages and @mentions")
+    cp.add_argument("--config", dest="chat_config", type=Path, required=True)
+    cp.add_argument("--once", action="store_true", help="answer at most one job, then exit")
     a = ap.parse_args(argv)
 
+    if a.cmd == "chat":
+        from perennial.chat import ChatHost, RootAgentClient, load_chat_config
+        ccfg = load_chat_config(a.chat_config)
+        host = ChatHost(ccfg, RootAgentClient(ccfg.root_url, ccfg.key))
+        if a.once:
+            print("answered one job" if host.run_once() else "no job")
+        else:
+            print(f"{ccfg.agent_name}: chat host polling {ccfg.root_url}", flush=True)
+            host.loop()
+        return 0
     if a.cmd == "export-root":
         from perennial.root import export_inbox
         print(export_inbox(a.page, a.out))
