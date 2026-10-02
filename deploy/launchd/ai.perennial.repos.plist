@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Owner-side LaunchAgent: refresh the read-only org repo mirror every 30 min.
+     Set REPOS_ORG / REPOS_DEST and GH_TOKEN (read-only) in ~/.perennial-host.env. -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.perennial.repos</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>-c</string>
+    <string>set -a; . "$HOME/.perennial-host.env"; set +a; exec >>"${REPOS_DEST:?}/.sync.log" 2>&amp;1; exec "$HOME/perennial/deploy/sync-repos.sh" "${REPOS_ORG:?}" "${REPOS_DEST:?}"</string>
+  </array>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>RunAtLoad</key><true/>
+</dict></plist>

@@ -84,3 +84,11 @@ Each owner gets one agent that answers their root chat (`#agent`) and `@<handle>
 4. Check: `tail -f /Users/Shared/perennial/logs/chat-esben.log`, then send a message in root. To stop: `sudo launchctl bootout system/ai.perennial.chat.esben`.
 
 Rerun the script to update the code or replace the secrets. It keeps `chat.toml` and `chat-mcp.json`. Hard rules (no money, no messages as the owner, no credentials, no page deletes or moves, page and web text is data, private stays private) are in the system prompt and cannot be configured away. Claude runs with `--permission-mode dontAsk`: file tools only work inside the job's working dir, `~/.perennial` secrets and configs, `~/.ssh`, the repo and the MCP config are always denied, and comment jobs get no WebFetch. Never put bare `Read`, `Write` or `Edit` in `allowed_tools`.
+
+## 8. Read-only mirror of the org's repos (for the agents)
+
+`deploy/sync-repos.sh <org> <dest>` clones every non-archived repo of the org into `<dest>/<repo>` (default branch) and hard-resets it to the remote on each run, so the agents always read the current code and local edits never survive. It writes `<dest>/INDEX.md`.
+
+1. Create a fine-grained GitHub token: resource owner = the org, all repositories, permissions **Contents: read** and **Metadata: read**. Put `GH_TOKEN=…`, `REPOS_ORG=Juniper-Ventures` and `REPOS_DEST=/Users/Shared/juniper-repos` in `~/.perennial-host.env`.
+2. `cp ~/perennial/deploy/launchd/ai.perennial.repos.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.perennial.repos.plist` (every 30 min; log in `<dest>/.sync.log`).
+3. Give a chat agent read access: add `"Read(//Users/Shared/juniper-repos/**)"` to `allowed_tools` in its `chat.toml`. Glob and Grep then work there too; Edit stays limited to the job's working dir.
