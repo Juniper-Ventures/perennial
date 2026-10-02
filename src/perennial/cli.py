@@ -127,11 +127,16 @@ def main(argv: list[str] | None = None) -> int:
         build(cfg).tick()
     elif a.cmd == "loop":
         sv = build(cfg)
+        last = sv.store.last_event_id()
         while True:
             try:
                 sv.tick()
             except Exception as e:
                 sv.store.event("tick_error", error=str(e)[:1000])
+            # Echo new events to stdout, so the owner-readable launchd log shows what happened.
+            for ev in sv.store.events_after(last):
+                print(f"{ev['ts']} {cfg.name} {ev['kind']} {ev['data']}", flush=True)
+                last = ev["id"]
             time.sleep(a.every)
     return 0
 
