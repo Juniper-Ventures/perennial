@@ -78,7 +78,7 @@ chown "$AGENT":staff "$CFG/chat.toml" "$CFG/chat-mcp.json" "$ENVF"
 chmod 600 "$ENVF"
 
 # 5. Check the Claude token as the agent.
-sudo -u "$AGENT" -H bash -c 'set -a; . ~/.perennial/chat.env; set +a; unset ANTHROPIC_API_KEY
+sudo -u "$AGENT" -H bash -c 'cd ~; set -a; . ~/.perennial/chat.env; set +a; unset ANTHROPIC_API_KEY
   ~/.local/bin/claude -p --model haiku "Reply with the single word OK"' && echo "TOKEN OK" \
   || echo "WARNING: the Claude token check failed. Fix it and rerun this script."
 

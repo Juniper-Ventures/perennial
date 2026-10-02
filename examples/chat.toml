@@ -16,9 +16,13 @@ workdir = "~/.perennial/chat"
 # MCP servers for the agent (see examples/chat-mcp.json). The root server uses the agent key, so it sees
 # the owner's private pages plus the shared pages, and nothing else.
 mcp_config = "~/.perennial/chat-mcp.json"
-# Tools Claude Code may use without asking. Everything else is denied in headless mode.
+# Tools Claude Code may use without asking. Everything else is denied (permission mode dontAsk).
+# File tools stay inside the job's working dir: reads there need no rule, and Edit(./**) also covers Write.
+# Never add bare "Read", "Write" or "Edit": they match every path, including ~/.perennial/chat.env.
+# The host always denies the secrets in ~/.perennial, ~/.ssh, the repo and the MCP config, and drops
+# WebFetch for comment jobs.
 allowed_tools = [
-  "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch",
+  "Edit(./**)", "Glob", "Grep", "WebSearch", "WebFetch",
   "mcp__root__*",
   # Optional: Airtable read tools. Add the airtable server to chat-mcp.json first.
   # "mcp__airtable__list_bases", "mcp__airtable__list_tables", "mcp__airtable__describe_table",
