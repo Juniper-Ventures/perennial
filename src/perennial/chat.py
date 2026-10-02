@@ -1,7 +1,8 @@
 """Chat host: a personal agent that answers root chat messages and @mentions in page comments.
 
 It long-polls root for jobs (`GET /api/agent/next`), runs Claude Code headless for each one, streams the
-text so far back as progress, and finishes the job with the final text and the Claude session id.
+text so far and the tool steps (activity) back as progress, and finishes the job with the final text and the
+Claude session id. A progress answer with cancel: true means the owner stopped the reply: the host stops Claude.
 The agent key in the environment acts for exactly one owner, so root decides which pages it may see.
 """
 from __future__ import annotations
@@ -32,8 +33,10 @@ DENIED_TOOLS = [f"{tool}({path})" for path in ["~/.perennial/*.env", "~/.perenni
 # Comment jobs run on pages other people can write, so they get no WebFetch (an exfiltration channel).
 COMMENT_DENIED_PREFIXES = ("WebFetch",)
 PAGE_LIMIT = 30_000
-PROGRESS_EVERY_S = 1.5
-HEARTBEAT_S = 30.0  # root shows the agent offline after 60 s without a call
+PROGRESS_EVERY_S = 1.0
+HEARTBEAT_S = 3.0  # chat jobs: root shows the agent offline after 60 s without a call, and learns of a stop here
+STOP_GRACE_S = 3.0  # SIGTERM, then SIGKILL after this long
+ACTIVITY_MAX, LABEL_MAX, DETAIL_MAX = 60, 200, 300
 EMPTY_REPLY = "(Færdig — intet svar-tekst)"  # root rejects a done with empty content and no error
 USER_AGENT = "root-mcp/1.0"  # Cloudflare blocks the default urllib user agent.
 
@@ -117,8 +120,14 @@ class RootAgentClient:
     def next_job(self, wait: int = 25) -> dict | None:
         return self._req("GET", f"/api/agent/next?wait={wait}", timeout=wait + 20).get("job")
 
-    def progress(self, job_id: str, content: str) -> None:
-        self._req("POST", f"/api/agent/jobs/{job_id}/progress", {"content": content})
+    def progress(self, job_id: str, content: str | None = None, activity: list[dict] | None = None) -> dict:
+        """Send the fields that are given. Root answers {ok, cancel}; cancel is true once the owner stopped the job."""
+        body: dict = {}
+        if content is not None:
+            body["content"] = content
+        if activity is not None:
+            body["activity"] = activity
+        return self._req("POST", f"/api/agent/jobs/{job_id}/progress", body)
 
     def done(self, job_id: str, content: str, claude_session: str | None = None, error: str | None = None) -> None:
         body: dict = {"content": content}
@@ -137,11 +146,11 @@ class ProcResult:
 
 class StreamRunner(Protocol):
     def __call__(self, cmd: list[str], stdin: str, cwd: Path, on_line: Callable[[str], None],
-                 timeout_s: int) -> ProcResult: ...
+                 timeout_s: int, stop: threading.Event | None = None) -> ProcResult: ...
 
 
-def run_streaming(cmd, stdin, cwd, on_line, timeout_s) -> ProcResult:
-    """Run cmd, feed stdin, and call on_line for each stdout line as it arrives."""
+def run_streaming(cmd, stdin, cwd, on_line, timeout_s, stop: threading.Event | None = None) -> ProcResult:
+    """Run cmd, feed stdin, and call on_line for each stdout line as it arrives. Setting stop ends the process."""
     proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             text=True, bufsize=1)
     err: list[str] = []
@@ -149,9 +158,27 @@ def run_streaming(cmd, stdin, cwd, on_line, timeout_s) -> ProcResult:
     reader.start()
     timer = threading.Timer(timeout_s, proc.kill)
     timer.start()
+    stopped = threading.Event()
+
+    def stopper() -> None:
+        while proc.poll() is None:
+            if stop.wait(0.2):
+                stopped.set()
+                proc.terminate()
+                try:
+                    proc.wait(STOP_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                return
+
+    if stop is not None:
+        threading.Thread(target=stopper, daemon=True).start()
     try:
-        proc.stdin.write(stdin)
-        proc.stdin.close()
+        try:
+            proc.stdin.write(stdin)
+            proc.stdin.close()
+        except BrokenPipeError:  # stopped before it read its input
+            pass
         for line in proc.stdout:
             on_line(line)
         rc = proc.wait()
@@ -162,9 +189,65 @@ def run_streaming(cmd, stdin, cwd, on_line, timeout_s) -> ProcResult:
             proc.wait()
     reader.join(5)
     stderr = "".join(err)
-    if rc < 0:
+    if stopped.is_set():
+        stderr = f"claude was stopped (job cancelled)\n{stderr}"
+    elif rc < 0:
         stderr = f"claude was killed (timeout {timeout_s}s?)\n{stderr}"
     return ProcResult(rc, stderr)
+
+
+def clip(text, limit: int) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+# Tool name -> (activity kind, Danish label). {field} is filled from the tool input.
+TOOL_LABELS = {
+    "WebSearch": ("search", "Søger på nettet: {query}"),
+    "mcp__root__root_search": ("root", "Søger i root: {query}"),
+    "mcp__root__root_read_page": ("read", "Læser side: {id}"),
+    "mcp__root__root_list_pages": ("root", "Kigger i root"),
+    "mcp__root__root_create_page": ("write", "Opretter side: {title}"),
+    "mcp__root__root_update_page": ("write", "Opdaterer side: {id}"),
+    "mcp__root__root_comment": ("write", "Kommenterer på side: {page_id}"),
+    "mcp__root__root_activity": ("root", "Ser seneste aktivitet"),
+    "Glob": ("files", "Leder i filer: {pattern}"),
+    "Grep": ("files", "Leder i filer: {pattern}"),
+}
+
+
+def tool_activity(name: str, args) -> dict:
+    """What root shows for one tool call: {kind, label, detail?}."""
+    args = args if isinstance(args, dict) else {}
+
+    def arg(*keys: str) -> str:
+        return next((str(args[k]) for k in keys if args.get(k) not in (None, "")), "")
+
+    detail = None
+    if name in TOOL_LABELS:
+        kind, template = TOOL_LABELS[name]
+        label = re.sub(r"\{(\w+)\}", lambda m: arg(m.group(1)), template).rstrip(": ")
+    elif name == "WebFetch":
+        url = arg("url")
+        short = re.sub(r"^[a-z]+://(www\.)?", "", url.split("?", 1)[0].split("#", 1)[0]).rstrip("/")
+        kind, label, detail = "fetch", f"Læser: {clip(short, 80)}".rstrip(": "), url or None
+    elif name.startswith("mcp__airtable__"):
+        target = arg("tableName", "tableId", "table", "baseName", "baseId", "base")
+        kind, label = "airtable", " ".join(p for p in ["Airtable:", name.removeprefix("mcp__airtable__"), target] if p)
+    elif name in ("Edit", "Write"):
+        kind, label = "files", f"Skriver fil: {Path(arg('file_path')).name}".rstrip(": ")
+    else:
+        kind, label = "other", name or "værktøj"
+    entry = {"kind": kind, "label": clip(label, LABEL_MAX)}
+    if detail:
+        entry["detail"] = clip(detail, DETAIL_MAX)
+    return entry
+
+
+def result_text(content) -> str:
+    if isinstance(content, list):
+        return " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return content if isinstance(content, str) else ""
 
 
 @dataclass
@@ -175,6 +258,45 @@ class Turn:
     result: dict | None = None
     returncode: int = 0
     stderr: str = ""
+    activity: list[dict] = field(default_factory=list)
+    cancelled: bool = False
+    tools: dict[str, dict] = field(default_factory=dict, repr=False)  # tool_use_id -> its activity entry
+
+    def feed(self, ev: dict) -> bool:
+        """Take one stream-json event. Returns True if the text or the activity changed."""
+        if ev.get("session_id") and ev.get("type") in ("system", "result"):
+            self.session_id = ev["session_id"]
+        if ev.get("type") == "result":
+            self.result = ev
+            return False
+        if ev.get("type") not in ("assistant", "user"):
+            return False
+        changed = False
+        now = int(time.time() * 1000)
+        for b in (ev.get("message") or {}).get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            kind = b.get("type")
+            if ev["type"] == "assistant" and kind == "text" and b.get("text"):
+                self.text = "\n\n".join(t for t in [self.text, b["text"]] if t)
+                changed = True
+            elif ev["type"] == "assistant" and kind in ("thinking", "redacted_thinking"):
+                if not any(a["kind"] == "think" for a in self.activity):
+                    self.activity.append({"kind": "think", "label": "Tænker", "at": now})
+                    changed = True
+            elif ev["type"] == "assistant" and kind == "tool_use":
+                entry = {**tool_activity(str(b.get("name") or ""), b.get("input")), "at": now, "status": "running"}
+                self.activity.append(entry)
+                if b.get("id"):
+                    self.tools[b["id"]] = entry
+                changed = True
+            elif ev["type"] == "user" and kind == "tool_result" and b.get("tool_use_id") in self.tools:
+                entry = self.tools.pop(b["tool_use_id"])
+                entry["status"] = "error" if b.get("is_error") else "done"
+                if b.get("is_error") and result_text(b.get("content")).strip():
+                    entry["detail"] = clip(result_text(b.get("content")), DETAIL_MAX)
+                changed = True
+        return changed
 
     @property
     def final_text(self) -> str:
@@ -298,37 +420,37 @@ class ChatHost:
 
     def _run(self, job: dict, session: str | None, cwd: Path) -> Turn:
         turn = Turn(session_id=session)
-        last = [self.clock(), ""]
+        last = [self.clock(), ("", [])]  # when progress was last sent, and what
         lock = threading.Lock()
+        cancel = threading.Event()  # the owner stopped the reply; the runner ends Claude
 
         def post() -> None:
             with lock:
+                if cancel.is_set():
+                    return
+                state = (turn.text, [dict(a) for a in turn.activity[-ACTIVITY_MAX:]])
+                last[0], last[1] = self.clock(), state
                 try:
-                    self.client.progress(job["id"], turn.text)
+                    resp = self.client.progress(job["id"], content=state[0], activity=state[1] or None)
                 except Exception as e:  # progress is best effort; done carries the answer
                     self.log(f"progress failed for {job['id']}: {e}")
+                    return
+                if isinstance(resp, dict) and resp.get("cancel"):
+                    cancel.set()
 
         def on_line(line: str) -> None:
             try:
                 ev = json.loads(line)
             except json.JSONDecodeError:
                 return
-            if not isinstance(ev, dict):
+            if not isinstance(ev, dict) or not turn.feed(ev):
                 return
-            if ev.get("session_id") and ev.get("type") in ("system", "result"):
-                turn.session_id = ev["session_id"]
-            if ev.get("type") == "result":
-                turn.result = ev
-            elif ev.get("type") == "assistant":
-                texts = [b.get("text", "") for b in (ev.get("message") or {}).get("content") or []
-                         if isinstance(b, dict) and b.get("type") == "text" and b.get("text")]
-                if texts:
-                    turn.text = "\n\n".join(t for t in [turn.text, *texts] if t)
-                    if self.clock() - last[0] >= PROGRESS_EVERY_S and turn.text != last[1]:
-                        last[0], last[1] = self.clock(), turn.text
-                        post()
+            state = (turn.text, turn.activity[-ACTIVITY_MAX:])
+            if self.clock() - last[0] >= PROGRESS_EVERY_S and state != last[1]:
+                post()
 
-        # Chat jobs re-post the text so far while Claude works without new text, so root keeps the agent online.
+        # Chat jobs re-post the state every heartbeat_s, so root keeps the agent online, gets throttled changes,
+        # and can answer cancel when the owner stops the reply.
         stop = threading.Event()
         beat = None
         if job.get("kind") != "comment":
@@ -339,12 +461,12 @@ class ChatHost:
             beat.start()
         try:
             res = self.runner(self.command(session, job.get("kind") or "chat"), build_prompt(job, resume=bool(session)),
-                              cwd, on_line, self.cfg.timeout_s)
+                              cwd, on_line, self.cfg.timeout_s, stop=cancel)
         finally:
             stop.set()
             if beat:
                 beat.join()
-        turn.returncode, turn.stderr = res.returncode, res.stderr
+        turn.returncode, turn.stderr, turn.cancelled = res.returncode, res.stderr, cancel.is_set()
         return turn
 
     def handle(self, job: dict) -> None:
@@ -353,13 +475,15 @@ class ChatHost:
         session = job.get("claude_session") or None
         try:
             turn = self._run(job, session, cwd)
-            if session and not turn.ok and turn.unknown_session:
+            if session and not turn.ok and not turn.cancelled and turn.unknown_session:
                 self.log(f"job {job['id']}: session {session} not found here, starting a new one with the transcript")
                 turn = self._run(job, None, cwd)
         except Exception as e:
             self._done(job["id"], "", None, f"chat host error: {e}"[:2000])
             return
-        if turn.ok:
+        if turn.cancelled:  # root already finished the job; a done would only get a 409
+            self.log(f"job {job['id']}: cancelled")
+        elif turn.ok:
             self._done(job["id"], turn.final_text or EMPTY_REPLY, turn.session_id, None)
         else:
             self._done(job["id"], turn.text.strip(), turn.session_id, turn.error)

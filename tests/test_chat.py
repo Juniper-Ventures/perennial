@@ -1,11 +1,15 @@
+import io
 import json
 import sys
+import threading
 import time
 import urllib.error
 
 import pytest
 
-from perennial.chat import EMPTY_REPLY, PAGE_LIMIT, ChatConfig, ChatHost, ProcResult, build_prompt, run_streaming
+from perennial import chat
+from perennial.chat import (EMPTY_REPLY, PAGE_LIMIT, ChatConfig, ChatHost, ProcResult, RootAgentClient, build_prompt,
+                            run_streaming)
 
 
 class FakeClient:
@@ -16,8 +20,9 @@ class FakeClient:
     def next_job(self, wait=25):
         return self.jobs.pop(0) if self.jobs else None
 
-    def progress(self, job_id, content):
-        self.progress_calls.append((job_id, content))
+    def progress(self, job_id, content=None, activity=None):
+        self.progress_calls.append({"id": job_id, "content": content, "activity": activity})
+        return {"ok": True, "cancel": False}
 
     def done(self, job_id, content, claude_session=None, error=None):
         self.done_calls.append({"id": job_id, "content": content, "claude_session": claude_session, "error": error})
@@ -29,7 +34,7 @@ class FakeRunner:
     def __init__(self, clock, *scripts):
         self.clock, self.scripts, self.calls = clock, list(scripts), []
 
-    def __call__(self, cmd, stdin, cwd, on_line, timeout_s):
+    def __call__(self, cmd, stdin, cwd, on_line, timeout_s, stop=None):
         self.calls.append({"cmd": cmd, "stdin": stdin, "cwd": cwd})
         events, rc, stderr = self.scripts.pop(0)
         for t, ev in events:
@@ -57,6 +62,20 @@ def result(text, sid, is_error=False, turns=1):
     return {"type": "result", "result": text, "session_id": sid, "is_error": is_error, "num_turns": turns}
 
 
+def tool_use(use_id, name, args):
+    return {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": use_id, "name": name, "input": args}]}}
+
+
+def tool_result(use_id, error=None):
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": use_id, "is_error": bool(error), "content": error or "ok"}]}}
+
+
+def think():
+    return {"type": "assistant", "message": {"content": [{"type": "thinking", "thinking": "hmm"}]}}
+
+
+
 def host(tmp_path, client, runner, clock):
     cfg = ChatConfig(agent_name="Odin", model="haiku", workdir=tmp_path / "chat", mcp_config=tmp_path / "mcp.json")
     return ChatHost(cfg, client, runner=runner, clock=clock, sleep=lambda s: None, log=lambda s: None)
@@ -75,7 +94,7 @@ def test_job_streams_throttled_progress_then_done_with_final_text_and_session(tm
     client = FakeClient([chat_job()])
     assert host(tmp_path, client, runner, clock).run_once() is True
     # 0.5 s is too soon after start; 2.0 s posts the text so far; 2.5 s is too soon after that.
-    assert client.progress_calls == [("j1", "Looking it up.\n\npong")]
+    assert client.progress_calls == [{"id": "j1", "content": "Looking it up.\n\npong", "activity": None}]
     assert client.done_calls == [{"id": "j1", "content": "pong", "claude_session": "s-1", "error": None}]
     call = runner.calls[0]
     assert "--resume" not in call["cmd"] and call["cwd"] == tmp_path / "chat" / "t1"
@@ -127,7 +146,7 @@ def test_retry_happens_only_once_and_other_failures_do_not_retry(tmp_path):
 
 
 def test_runner_exception_finishes_job_with_error(tmp_path):
-    def broken(cmd, stdin, cwd, on_line, timeout_s):
+    def broken(cmd, stdin, cwd, on_line, timeout_s, stop=None):
         raise FileNotFoundError("claude: command not found")
 
     client = FakeClient([chat_job()])
@@ -237,6 +256,19 @@ def test_run_streaming_feeds_stdin_streams_lines_and_kills_on_timeout(tmp_path):
     assert r.returncode != 0 and "killed" in r.stderr
 
 
+@pytest.mark.parametrize("ignore_term,rc", [(False, -15), (True, -9)])
+def test_run_streaming_stop_terminates_then_kills(tmp_path, monkeypatch, ignore_term, rc):
+    monkeypatch.setattr(chat, "STOP_GRACE_S", 0.3)
+    stop = threading.Event()
+    script = ("import signal, time\n"
+              f"if {ignore_term}: signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+              "print('up', flush=True)\ntime.sleep(30)")
+    started = time.monotonic()
+    r = run_streaming([sys.executable, "-c", script], "", tmp_path, lambda line: stop.set(), timeout_s=30, stop=stop)
+    assert time.monotonic() - started < 3
+    assert r.returncode == rc and "stopped" in r.stderr
+
+
 def test_file_tools_are_confined_and_comment_jobs_lose_webfetch(tmp_path):
     h = host(tmp_path, FakeClient(), FakeRunner(Clock()), Clock())
 
@@ -287,16 +319,105 @@ def test_done_does_not_retry_client_errors(tmp_path, code, tries):
     assert len(client.done_calls) == tries
 
 
-def test_chat_jobs_heartbeat_while_claude_is_silent_and_comment_jobs_do_not(tmp_path):
-    def silent(cmd, stdin, cwd, on_line, timeout_s):
-        time.sleep(0.25)
+def test_chat_jobs_heartbeat_every_heartbeat_s_and_comment_jobs_do_not(tmp_path):
+    def silent(cmd, stdin, cwd, on_line, timeout_s, stop=None):
+        time.sleep(0.45)
         on_line(json.dumps(result("ok", "s")) + "\n")
         return ProcResult(0, "")
 
-    for job, beats in [(chat_job(), True), ({**chat_job(), "kind": "comment", "page": {"id": "p", "content": ""}}, False)]:
+    for job, beats in [(chat_job(), range(3, 6)), ({**chat_job(), "kind": "comment", "page": {"id": "p", "content": ""}},
+                                                   range(0, 1))]:
         client = FakeClient([job])
         h = host(tmp_path, client, silent, Clock())
-        h.heartbeat_s = 0.05
+        h.heartbeat_s = 0.1  # 0.45 s of silence: beats at 0.1, 0.2, 0.3, 0.4
         h.run_once()
-        assert (len(client.progress_calls) >= 2) is beats
+        assert len(client.progress_calls) in beats
         assert len(client.done_calls) == 1
+
+
+def test_tool_steps_become_activity_with_status_from_tool_results(tmp_path):
+    clock = Clock()
+    query = "danish prime minister " * 20
+    runner = FakeRunner(clock, ([
+        (0.0, init("s-1")), (0.1, think()),
+        (0.2, tool_use("u1", "WebSearch", {"query": query})),
+        (0.3, tool_use("u2", "mcp__root__root_update_page", {"id": "p9", "content": "<p>x</p>"})),
+        (0.4, tool_use("u3", "mcp__airtable__list_records", {"baseId": "app1", "tableId": "Deals"})),
+        (0.5, tool_use("u4", "Edit", {"file_path": "/w/t1/notes.md"})),
+        (0.6, tool_use("u5", "WebFetch", {"url": "https://www.example.com/a/b/?q=1", "prompt": "summarise"})),
+        (0.7, tool_use("u6", "Bash", {"command": "ls"})), (0.8, think()),
+        (1.5, tool_result("u1")), (1.6, tool_result("u2", error="page not found")),
+        (3.0, say("Done.")), (3.1, result("Done.", "s-1"))], 0, ""))
+    client = FakeClient([chat_job()])
+    before = int(time.time() * 1000)
+    host(tmp_path, client, runner, clock).run_once()
+    # 1.5 s is the first post (search done); 1.6 s is throttled; 3.0 s posts the text and the error.
+    assert [c["content"] for c in client.progress_calls] == ["", "Done."]
+    first, last = client.progress_calls[0]["activity"], client.progress_calls[1]["activity"]
+    assert [a.get("status") for a in first][:3] == [None, "done", "running"]
+    assert all(before <= a["at"] <= int(time.time() * 1000) for a in last)
+    assert [{k: v for k, v in a.items() if k != "at"} for a in last] == [
+        {"kind": "think", "label": "Tænker"},  # thinking shows once per turn
+        {"kind": "search", "label": ("Søger på nettet: " + query.strip())[:199] + "…", "status": "done"},
+        {"kind": "write", "label": "Opdaterer side: p9", "status": "error", "detail": "page not found"},
+        {"kind": "airtable", "label": "Airtable: list_records Deals", "status": "running"},
+        {"kind": "files", "label": "Skriver fil: notes.md", "status": "running"},
+        {"kind": "fetch", "label": "Læser: example.com/a/b", "detail": "https://www.example.com/a/b/?q=1",
+         "status": "running"},
+        {"kind": "other", "label": "Bash", "status": "running"},
+    ]
+    assert len(last[1]["label"]) == 200
+    assert client.done_calls[0]["content"] == "Done."
+
+
+def test_cancel_from_progress_stops_claude_and_sends_nothing_more(tmp_path):
+    class Stopped(FakeClient):
+        def progress(self, job_id, content=None, activity=None):
+            super().progress(job_id, content, activity)
+            return {"ok": True, "cancel": True}
+
+    clock, seen = Clock(), {}
+
+    def working(cmd, stdin, cwd, on_line, timeout_s, stop=None):
+        on_line(json.dumps(init("s-1")) + "\n")
+        on_line(json.dumps(tool_use("u1", "WebSearch", {"query": "pm"})) + "\n")
+        seen["stopped"] = stop.wait(5)  # the heartbeat learns of the cancel and stops Claude
+        clock.t = 10.0
+        on_line(json.dumps(say("late output")) + "\n")  # buffered lines after the stop are not posted
+        return ProcResult(-15, "claude was stopped (job cancelled)")
+
+    logs = []
+    client = Stopped([chat_job(claude_session="s-old")])
+    cfg = ChatConfig(agent_name="Odin", model="haiku", workdir=tmp_path / "chat", mcp_config=tmp_path / "mcp.json")
+    h = ChatHost(cfg, client, runner=working, clock=clock, sleep=lambda s: None, log=logs.append)
+    h.heartbeat_s = 0.05
+    h.run_once()
+    assert seen["stopped"]
+    assert [a["label"] for a in client.progress_calls[0]["activity"]] == ["Søger på nettet: pm"]
+    assert len(client.progress_calls) == 1 and client.done_calls == []
+    assert "job j1: cancelled" in logs
+
+
+def test_progress_sends_only_the_given_fields(monkeypatch):
+    bodies = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def urlopen(req, timeout=None):
+        bodies.append((req.full_url, json.loads(req.data)))
+        return Resp(b'{"ok": true, "cancel": true}')
+
+    monkeypatch.setattr(chat.urllib.request, "urlopen", urlopen)
+    client = RootAgentClient("https://root.test", "rk_x")
+    activity = [{"kind": "think", "label": "Tænker", "at": 1}]
+    assert client.progress("j1", activity=activity) == {"ok": True, "cancel": True}
+    client.progress("j1", content="hi")
+    client.progress("j1", content="", activity=activity)
+    assert bodies == [("https://root.test/api/agent/jobs/j1/progress", {"activity": activity}),
+                      ("https://root.test/api/agent/jobs/j1/progress", {"content": "hi"}),
+                      ("https://root.test/api/agent/jobs/j1/progress", {"content": "", "activity": activity})]
