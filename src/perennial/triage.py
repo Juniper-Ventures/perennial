@@ -14,6 +14,8 @@ RULES = """Decide if you can finish this task ALONE inside your own sandbox comp
 - "ask": it needs the owner. It needs a human decision, a message to a person, the owner's accounts,
   publishing, signing up for services, or anything you cannot undo.
 - "skip": it is a personal errand or physical task (post office, calls, travel), or not actionable.
+- "skip" also when the task is outside the role your instructions above describe, even if you could do it.
+  A teammate with that role will take it. Only "do" tasks that fit your role.
 You may never: spend money, send email or messages as the owner, use the owner's credentials, or delete outside your sandbox.
 Answer ONLY with JSON: {"decision":"do|ask|skip","value":1-5,"effort":1-5,"reason":"one sentence"}"""
 
