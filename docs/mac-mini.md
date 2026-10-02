@@ -73,3 +73,14 @@ done
 - Logs: `tail /Users/Shared/perennial/logs/forge.log` (readable without sudo).
 - Add a bullet to the root **Inbox** page. Within about 10 minutes, a page `agent: task` appears under **Results**.
 - Kill switch for one perennial: `… --config …/forge.toml stop`. For all of them: `sudo launchctl bootout system/ai.perennial.<name>`.
+
+## 7. Personal chat agents (root)
+
+Each owner gets one agent that answers their root chat (`#agent`) and `@<handle>` mentions in their comments. It runs as its own macOS user (`agent-esben`, `agent-nick`) with its own Claude token and root agent key, so it sees only that owner's private pages plus the shared pages.
+
+1. In root, create the owner's agent key (`rk_…`, shown once). On a logged-in machine, run `claude setup-token` for the `sk-ant-oat…` token.
+2. Copy the root MCP server to the mini once: `~/juniper-root-mcp` with `server.js` and `node_modules` (override with `ROOT_MCP_SRC=…`).
+3. Run `sudo ~/perennial/deploy/setup-chat-agent.sh esben` (or `nick`). It creates the user, installs uv, Claude Code and this checkout for it, asks for the token and the key (nothing is shown), writes `~/.perennial/chat.env` (600), `chat.toml` and `chat-mcp.json`, checks the token, and starts the LaunchDaemon `ai.perennial.chat.<owner>`.
+4. Check: `tail -f /Users/Shared/perennial/logs/chat-esben.log`, then send a message in root. To stop: `sudo launchctl bootout system/ai.perennial.chat.esben`.
+
+Rerun the script to update the code or replace the secrets. It keeps `chat.toml` and `chat-mcp.json`. Hard rules (no money, no messages as the owner, no credentials, no page deletes, private stays private) are in the system prompt and cannot be configured away.

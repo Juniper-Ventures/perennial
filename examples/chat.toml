@@ -1,0 +1,39 @@
+# Example: personal chat agent ("Odin" for esben). Used by `perennial chat --config ~/.perennial/chat.toml`.
+# deploy/setup-chat-agent.sh copies this file for the agent-<owner> user and fills in the paths.
+# Secrets are not in this file: the root agent key is read from the environment variable named in key_env
+# (set in ~/.perennial/chat.env, chmod 600), and Claude Code uses CLAUDE_CODE_OAUTH_TOKEN from the same file.
+
+[chat]
+# Display name. The system prompt introduces the agent with it.
+agent_name = "Odin"
+root_url = "https://root.juniper.xyz"
+# Environment variable that holds the personal agent key (rk_...). It acts for exactly one owner.
+key_env = "ROOT_AGENT_KEY"
+# Claude Code model alias.
+model = "sonnet"
+# Each chat thread gets its own working dir here; comment jobs share <workdir>/comments.
+workdir = "~/.perennial/chat"
+# MCP servers for the agent (see examples/chat-mcp.json). The root server uses the agent key, so it sees
+# the owner's private pages plus the shared pages, and nothing else.
+mcp_config = "~/.perennial/chat-mcp.json"
+# Tools Claude Code may use without asking. Everything else is denied in headless mode.
+allowed_tools = [
+  "Read", "Write", "Edit", "Glob", "Grep", "WebSearch", "WebFetch",
+  "mcp__root__*",
+  # Optional: Airtable read tools. Add the airtable server to chat-mcp.json first.
+  # "mcp__airtable__list_bases", "mcp__airtable__list_tables", "mcp__airtable__describe_table",
+  # "mcp__airtable__list_records", "mcp__airtable__search_records", "mcp__airtable__get_record",
+]
+# Owner-specific instructions, added before the fixed hard rules (no money, no messages as the owner,
+# no credentials, no page deletes, private stays private). Use system_prompt_file for a longer text.
+system_prompt = "Your owner is Esben Kran (esben@juniper.xyz). Prefer short answers. Search root before you answer questions about Juniper."
+# system_prompt_file = "~/.perennial/chat-system.md"
+# A Claude run is killed after this many seconds (root re-queues a job after 15 min).
+timeout_s = 840
+# Claude Code binary.
+claude = "claude"
+
+# Optional Airtable server (read only). Add this to "mcpServers" in chat-mcp.json, and put AIRTABLE_PAT
+# (a read-only token) in ~/.perennial/chat.env:
+#   "airtable": {"command": "/opt/homebrew/bin/airtable-mcp-server",
+#                "env": {"AIRTABLE_API_KEY": "${AIRTABLE_PAT}"}}

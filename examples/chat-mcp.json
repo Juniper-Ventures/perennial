@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "root": {
+      "command": "/opt/homebrew/bin/node",
+      "args": ["/Users/agent-esben/root-mcp/server.js"],
+      "env": {
+        "ROOT_URL": "https://root.juniper.xyz",
+        "ROOT_API_KEY": "${ROOT_AGENT_KEY}",
+        "ROOT_AGENT": "odin"
+      }
+    }
+  }
+}
