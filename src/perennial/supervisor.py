@@ -44,7 +44,11 @@ class Supervisor:
                 return
             task = Task(id=row["id"], source=row["source"], ext_id=row["ext_id"], title=row["title"],
                         body=row["body"], url=row["url"])
-            tr, cost = self.triage_fn(task)
+            try:
+                tr, cost = self.triage_fn(task)
+            except Exception as e:  # keep the task 'new' so the next tick retries it
+                self.store.event("triage_error", task=row["id"], error=str(e)[:500])
+                return
             self.store.set_triage(row["id"], tr)
             self.store.event("triaged", task=row["id"], decision=tr.decision, cost=cost)
 

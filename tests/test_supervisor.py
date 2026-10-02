@@ -67,6 +67,23 @@ def test_failing_source_is_not_synced(tmp_path):
     assert [x["title"] for x in sv.store.tasks(status="needs_human")] == ["a"]
 
 
+def test_triage_outage_keeps_tasks_new_and_retries_next_tick(tmp_path):
+    state = {"down": True}
+
+    def triage_fn(task):
+        if state["down"]:
+            raise RuntimeError("triage run failed: not logged in")
+        return Triage("do", 3, 1, ""), 0.01
+
+    sv = make(tmp_path, [Src([t("a"), t("b")])], triage_fn)
+    sv.tick(now=datetime(2026, 10, 1, 9))
+    assert sorted(x["title"] for x in sv.store.tasks(status="new")) == ["a", "b"]
+    assert sv.executor.ran == []
+    state["down"] = False
+    sv.tick(now=datetime(2026, 10, 1, 9, 5))
+    assert sv.store.tasks(status="new") == [] and len(sv.executor.ran) == 1
+
+
 def test_budget_exhaustion_stops_execution(tmp_path):
     # daily $4, run headroom $2, each fake run costs $1: runs start at spent 0, 1, 2; at spent 3, 3+2 > 4.
     sv = make(tmp_path, [Src([t("a"), t("b"), t("c"), t("d")])], lambda task: (Triage("do", 3, 3, ""), 0), daily=4)

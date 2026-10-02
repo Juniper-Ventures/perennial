@@ -40,7 +40,13 @@ def parse_triage(text: str) -> Triage:
     return Triage("ask", 1, 5, "could not parse triage output")
 
 
+class TriageError(RuntimeError):
+    """The triage call itself failed (auth, network, CLI). The task must stay untriaged."""
+
+
 def triage(task: Task, runner, cwd: Path, model: str, charter: str) -> tuple[Triage, float]:
     out = runner.run(triage_prompt(task, charter), cwd=cwd, model=model, budget_usd=TRIAGE_BUDGET_USD,
                      timeout_s=180, system="You are a careful triage step. Output JSON only.")
-    return parse_triage(out.summary if out.ok else ""), out.cost_usd
+    if not out.ok:
+        raise TriageError(f"triage run failed: {out.summary[:300]}")
+    return parse_triage(out.summary), out.cost_usd
