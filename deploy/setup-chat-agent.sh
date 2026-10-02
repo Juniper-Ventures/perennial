@@ -35,6 +35,15 @@ read -rs RAW; echo
 KEY=$(printf "%s" "$RAW" | grep -oE "rk_[A-Za-z0-9]{40}" | head -1 || true)
 unset RAW
 [ -n "$KEY" ] || { echo "No rk_ key found. Nothing changed."; exit 1; }
+# The key must be an *Agent* key: probe a job that does not exist (agent key → 404, Claude Code key → 403).
+CODE=$(printf "X-API-Key: %s\n" "$KEY" | curl -s -o /dev/null -w "%{http_code}" -X POST -H @- -H "User-Agent: root-mcp/1.0" \
+  -H "Content-Type: application/json" -d '{"content":"x"}' "${ROOT_URL:-https://root.juniper.xyz}/api/agent/jobs/setup-probe/progress")
+case "$CODE" in
+  404) ;;
+  403) echo "That is a Claude Code key, not an Agent key. In root pick 'Agent' when you create it. Nothing changed."; exit 1 ;;
+  401) echo "root does not know that key (revoked or mistyped). Nothing changed."; exit 1 ;;
+  *) echo "Could not check the key with root (HTTP $CODE). Nothing changed."; exit 1 ;;
+esac
 
 # 2. The OS user. Its home is private; the owner's home stays unreadable to it.
 if ! id "$AGENT" >/dev/null 2>&1; then
