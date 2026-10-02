@@ -36,3 +36,15 @@ def test_triage_uses_cheap_budget(tmp_path):
     tr, cost = triage(t, FakeRunner('{"decision":"skip","value":1,"effort":1,"reason":"personal errand"}'),
                       cwd=tmp_path, model="haiku", charter="c")
     assert tr.decision == "skip" and cost == 0.01
+
+
+def test_failed_triage_run_raises_instead_of_parking(tmp_path):
+    import pytest
+    from perennial.triage import TriageError
+
+    class Down:
+        def run(self, prompt, cwd, model, budget_usd, timeout_s, system):
+            return RunOutput(ok=False, cost_usd=0.0, summary="Invalid API key · Please run /login")
+
+    with pytest.raises(TriageError, match="login"):
+        triage(Task.new(source="s:x", ext_id="1", title="t"), Down(), cwd=tmp_path, model="haiku", charter="c")
