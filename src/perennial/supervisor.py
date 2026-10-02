@@ -55,14 +55,17 @@ class Supervisor:
         if not task:
             return
         rid = self.store.start_run(task["id"], workspace="")
+        self.store.event("run_started", task=task["id"], title=task["title"][:100])
         try:
             out, ws = self.executor.execute(task)
         except Exception as e:
             self.store.finish_run(rid, ok=False, cost_usd=0.0, summary=f"executor error: {e}"[:2000])
+            self.store.event("run_finished", task=task["id"], ok=False, error=str(e)[:500])
             if self.claims:
                 self.claims.release(task["id"], self.name)
             return
         self.store.finish_run(rid, ok=out.ok, cost_usd=out.cost_usd, summary=f"{out.summary}\nworkspace: {ws}")
+        self.store.event("run_finished", task=task["id"], ok=out.ok, cost=out.cost_usd)
         if out.ok and self.post_results:
             result = Path(ws) / "RESULT.md"
             body = result.read_text()[:20000] if result.exists() else out.summary

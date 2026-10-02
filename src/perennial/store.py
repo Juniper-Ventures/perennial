@@ -52,6 +52,12 @@ class Store:
         with self.db:
             self.db.execute("INSERT INTO events(ts,kind,data) VALUES(?,?,?)", (now(), kind, json.dumps(data)))
 
+    def last_event_id(self) -> int:
+        return self.db.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()[0]
+
+    def events_after(self, after_id: int) -> list[dict]:
+        return [dict(r) for r in self.db.execute("SELECT * FROM events WHERE id>? ORDER BY id", (after_id,)).fetchall()]
+
     def sync(self, source: str, tasks: list[Task]) -> list[str]:
         """Insert unseen tasks; mark open tasks of this source that vanished as 'gone'. Returns new ids."""
         seen = {t.id for t in tasks}
