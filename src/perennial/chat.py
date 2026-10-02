@@ -397,7 +397,13 @@ class ChatHost:
                 delay = 0.0
             except (urllib.error.URLError, OSError, TimeoutError, ValueError) as e:
                 delay = min(60.0, delay * 2 if delay else 5.0)
-                self.log(f"root unreachable ({e}); retry in {delay:.0f}s")
+                detail = ""
+                if isinstance(e, urllib.error.HTTPError):
+                    try:
+                        detail = " " + e.read(200).decode("utf-8", "replace")
+                    except Exception:
+                        pass
+                self.log(f"root unreachable ({e}{detail}); retry in {delay:.0f}s")
                 self.sleep(delay)
             except Exception as e:
                 self.log(f"chat loop error: {e!r}; retry in 5s")
