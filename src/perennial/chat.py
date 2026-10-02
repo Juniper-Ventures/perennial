@@ -201,6 +201,10 @@ def clip(text, limit: int) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
+# Claude Code internals that mean nothing to the owner (deferred tool loading).
+HIDDEN_TOOLS = {"ToolSearch"}
+
+
 # Tool name -> (activity kind, Danish label). {field} is filled from the tool input.
 TOOL_LABELS = {
     "WebSearch": ("search", "Søger på nettet: {query}"),
@@ -284,7 +288,7 @@ class Turn:
                 if not any(a["kind"] == "think" for a in self.activity):
                     self.activity.append({"kind": "think", "label": "Tænker", "at": now})
                     changed = True
-            elif ev["type"] == "assistant" and kind == "tool_use":
+            elif ev["type"] == "assistant" and kind == "tool_use" and b.get("name") not in HIDDEN_TOOLS:
                 entry = {**tool_activity(str(b.get("name") or ""), b.get("input")), "at": now, "status": "running"}
                 self.activity.append(entry)
                 if b.get("id"):
