@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from collections.abc import Callable
@@ -106,12 +107,23 @@ def relay_once(outbox: Path, send: Callable[[str, str], None],
         if not ok:
             shutil.move(f, outbox / "rejected" / f.name)
             continue
-        if req["kind"] == "root_page":
-            post_root(req["title"][:150], req["message"][:20000])
-        elif req["kind"] == "approve":
-            ask(f"{req['message'][:MAX_LEN - 60]}\nReply YES to approve, anything else to deny.", "perennial-approve", req["id"])
-        else:
-            send(req["message"][:MAX_LEN], str(req.get("label", "perennial"))[:40])
-        shutil.move(f, outbox / "sent" / f.name)
+        # Claim the request first: if it cannot be moved to sent/, do not send it (otherwise every relay
+        # run would send it again). If sending fails, put it back so the next run retries.
+        done = outbox / "sent" / f.name
+        try:
+            shutil.move(f, done)
+        except OSError as e:
+            print(f"relay: cannot move {f.name} to sent/ ({e}); not sending it", file=sys.stderr)
+            continue
+        try:
+            if req["kind"] == "root_page":
+                post_root(req["title"][:150], req["message"][:20000])
+            elif req["kind"] == "approve":
+                ask(f"{req['message'][:MAX_LEN - 60]}\nReply YES to approve, anything else to deny.", "perennial-approve", req["id"])
+            else:
+                send(req["message"][:MAX_LEN], str(req.get("label", "perennial"))[:40])
+        except Exception:
+            shutil.move(done, f)
+            raise
         n += 1
     return n

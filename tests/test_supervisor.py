@@ -265,3 +265,35 @@ def test_no_result_page_by_default(tmp_path):
                     digest_hour=23, name="forge")
     sv.tick(now=datetime(2026, 10, 2, 9))
     assert sv.outbox.pages == []
+
+
+def test_digest_is_silent_on_a_day_where_nothing_happened(tmp_path):
+    from datetime import timedelta
+    today = datetime.now().replace(hour=19, minute=0)
+    sv = make(tmp_path, [Src([t("decide on name")])], lambda task: (Triage("ask", 3, 3, ""), 0))
+    sv.tick(now=today)
+    assert len(sv.outbox.sent) == 1 and "Needs you (1)" in sv.outbox.sent[0][1]
+    sv.tick(now=today + timedelta(days=1))
+    assert len(sv.outbox.sent) == 1  # yesterday's open question is not repeated, and 0 runs is not news
+
+
+class NextStepEx:
+    def __init__(self, ws):
+        self.ws = ws
+        self.ran = []
+
+    def execute(self, task):
+        self.ran.append(task["title"])
+        self.ws.mkdir(exist_ok=True)
+        (self.ws / "RESULT.md").write_text("# Plan\nDrafted the invite.\nNext step for the owner: send the draft in invite.md to Matt.\n")
+        return RunOutput(ok=True, cost_usd=0.2, summary="drafted the invite"), self.ws
+
+
+def test_digest_tells_the_owner_the_one_next_step_from_result(tmp_path):
+    pol = Policy(stop_file=tmp_path / "STOP", autonomy=2, daily_budget=10, run_budget=1)
+    sv = Supervisor(store=Store(tmp_path / "s.sqlite"), sources=[Src([t("invite Matt to dinner")])], policy=pol,
+                    executor=NextStepEx(tmp_path / "ws"), outbox=Outbox(), triage_fn=lambda task: (Triage("do", 3, 3, ""), 0),
+                    digest_hour=18, name="tally")
+    sv.tick(now=datetime.now().replace(hour=19, minute=0))
+    [(_, msg)] = sv.outbox.sent
+    assert "→ you: send the draft in invite.md to Matt." in msg

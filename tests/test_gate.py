@@ -90,3 +90,32 @@ def test_root_page_kind_goes_to_root_poster_only_when_enabled(tmp_path):
 def test_root_page_needs_autonomy_two(tmp_path):
     with pytest.raises(Blocked):
         Outbox(tmp_path / "outbox", pol(tmp_path, autonomy=1)).root_page("t", "m")
+
+
+def test_relay_never_resends_when_sent_dir_is_not_writable(tmp_path):
+    # Live bug: sent/ belonged to another macOS user, so every 5-minute relay run sent the same digest again.
+    box = tmp_path / "outbox"
+    (box / "sent").mkdir(parents=True)
+    (box / "1.json").write_text(json.dumps({"kind": "notify", "label": "perennial-digest", "message": "digest"}))
+    (box / "sent").chmod(0o500)
+    sent = []
+    try:
+        for _ in range(3):
+            relay_once(box, send=lambda msg, label: sent.append(msg))
+    finally:
+        (box / "sent").chmod(0o700)
+    assert sent == []
+
+
+def test_relay_keeps_a_request_whose_send_failed_for_the_next_run(tmp_path):
+    box = tmp_path / "outbox"
+    box.mkdir()
+    (box / "1.json").write_text(json.dumps({"kind": "notify", "label": "l", "message": "hi"}))
+
+    def down(msg, label):
+        raise OSError("telegram down")
+
+    with pytest.raises(OSError):
+        relay_once(box, send=down)
+    sent = []
+    assert relay_once(box, send=lambda msg, label: sent.append(msg)) == 1 and sent == ["hi"]

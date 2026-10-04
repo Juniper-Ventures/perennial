@@ -6,6 +6,14 @@ from pathlib import Path
 from perennial.models import Task
 
 
+def local_day(iso: str | None) -> str:
+    """Store timestamps are UTC ISO strings; the digest works in local days."""
+    try:
+        return datetime.fromisoformat(iso).astimezone().date().isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
 class Supervisor:
     def __init__(self, store, sources, policy, executor, outbox, triage_fn, digest_hour: int, name: str,
                  ideate_fn=None, idea_hour: int = 3, approvals=None, gh=None, claims=None,
@@ -68,11 +76,14 @@ class Supervisor:
             if self.claims:
                 self.claims.release(task["id"], self.name)
             return
-        self.store.finish_run(rid, ok=out.ok, cost_usd=out.cost_usd, summary=f"{out.summary}\nworkspace: {ws}")
+        result = Path(ws) / "RESULT.md"
+        result_text = result.read_text()[:20000] if result.exists() else ""
+        nxt = next((ln.strip() for ln in result_text.splitlines() if ln.strip().lower().startswith("next step for the owner:")), "")
+        self.store.finish_run(rid, ok=out.ok, cost_usd=out.cost_usd,
+                              summary=f"{out.summary}\n{nxt}\nworkspace: {ws}" if nxt else f"{out.summary}\nworkspace: {ws}")
         self.store.event("run_finished", task=task["id"], ok=out.ok, cost=out.cost_usd)
         if out.ok and self.post_results:
-            result = Path(ws) / "RESULT.md"
-            body = result.read_text()[:20000] if result.exists() else out.summary
+            body = result_text or out.summary
             self.outbox.root_page(f"{self.name}: {task['title'][:100]}", f"{body}\n\n---\nSource: {task['source']} {task.get('url', '')}")
         if not out.ok and self.claims and self.store.get_task(task["id"])["status"] != "parked":
             self.claims.release(task["id"], self.name)  # let another perennial try
@@ -132,10 +143,17 @@ class Supervisor:
         lines = [f"{self.name} — {day}: {len(runs)} runs, ${sum(r['cost_usd'] for r in runs):.2f}"]
         for r in runs:
             mark = "done" if r["ok"] else "failed"
-            lines.append(f"- {mark}: {r['title'][:80]} — {(r['summary'] or '').splitlines()[0][:120] if r['summary'] else ''}")
-        asks = self.store.tasks(status="needs_human")
+            summary = r["summary"] or ""
+            lines.append(f"- {mark}: {r['title'][:80]} — {summary.splitlines()[0][:120] if summary else ''}")
+            nxt = next((ln.split(":", 1)[1].strip() for ln in summary.splitlines()
+                        if ln.lower().startswith("next step for the owner:")), "")
+            if nxt:
+                lines.append(f"  → you: {nxt[:200]}")
+        # Only todos that newly need the owner today; the standing list is on the dashboard, not repeated daily.
+        asks = [a for a in self.store.tasks(status="needs_human") if local_day(a["updated_at"]) == day]
         if asks:
-            lines.append(f"Needs you ({len(asks)}): " + "; ".join(a["title"][:60] for a in asks[:5]))
+            lines.append(f"Needs you ({len(asks)}):")
+            lines += [f"- {a['title'][:60]} — {(a['reason'] or '')[:160]}" for a in asks[:5]]
         today_ideas = [i for i in self.store.ideas() if i["created_at"][:10] == day]
         if today_ideas:
             queued = [i["title"] for i in self.store.ideas(status="queued")]
@@ -147,5 +165,6 @@ class Supervisor:
         parked = self.store.tasks(status="parked")
         if parked:
             lines.append(f"Parked after 3 failures: " + "; ".join(p["title"][:60] for p in parked[:5]))
-        self.outbox.notify("\n".join(lines), label="perennial-digest")
+        if len(lines) > 1:  # nothing happened and nothing is waiting: no message
+            self.outbox.notify("\n".join(lines), label="perennial-digest")
         self.store.put("digest_date", day)

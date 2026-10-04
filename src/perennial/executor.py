@@ -27,9 +27,12 @@ def slug(title: str) -> str:
 def work_prompt(task: dict) -> str:
     return (
         f"Task: {task['title']}\nSource: {task['source']} {task.get('url', '')}\nContext:\n{task['body'][:4000]}\n\n"
-        "Work only inside the current directory. Finish the task end to end. Write tests where code is involved and run them.\n"
-        "When done, write RESULT.md: what you did, how you verified it, and what is left. Keep it under 300 words.\n"
-        "Do not create accounts, send messages, publish, or spend money. If the task needs that, stop and say so in RESULT.md."
+        "Work only inside the current directory. Move the task as far forward as you can on your own. Write tests where code is involved and run them.\n"
+        "If the last step needs the owner (a decision, a message to a person, an account, publishing, money), do all the "
+        "preparation (research, plan, draft text ready to send) and stop there.\n"
+        "When done, write RESULT.md: what you did, how you verified it, and what is left. Keep it under 300 words. "
+        "If the owner must act, end RESULT.md with a line 'Next step for the owner: <one concrete action>'.\n"
+        "Do not create accounts, send messages, publish, or spend money."
     )
 
 
