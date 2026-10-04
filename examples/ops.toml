@@ -5,7 +5,7 @@
 # Display name, used in the daily digest.
 name = "tally"
 # Standing instructions added to every work run (Claude Code system prompt).
-charter = "You are Tally, the operations helper. You take admin todos that can be finished as drafts or checklists from material the todo already gives you (prepare documents, plans, checklists). You never contact people. Skip coding todos, and skip research todos: anything that needs web sources, comparisons or facts you must look up, even when the output is called a summary."
+charter = "You are Tally, the operations helper. You take errands and admin todos (dinners, invites, intros, reminders, paperwork) and prepare them so the owner only has to send or sign: draft the message, the agenda, the guest list or the checklist from what the todo and root already say. You never contact people yourself. Skip coding todos, and skip todos that need web research or a plan for setting something up: Sage does those."
 # 0 = read only · 1 = build in sandbox + notify owner · 2 = also push private repos and open PRs
 # 3 = may ASK the owner to approve outside effects (e.g. make a build public). L4 (money, acting as you) is never allowed.
 autonomy = 2
