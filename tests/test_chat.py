@@ -15,17 +15,21 @@ from perennial.chat import (EMPTY_REPLY, PAGE_LIMIT, ChatConfig, ChatHost, ProcR
 class FakeClient:
     def __init__(self, jobs=()):
         self.jobs = list(jobs)
-        self.progress_calls, self.done_calls = [], []
+        self.progress_calls, self.done_calls, self.done_extra = [], [], []
 
     def next_job(self, wait=25):
         return self.jobs.pop(0) if self.jobs else None
 
-    def progress(self, job_id, content=None, activity=None):
-        self.progress_calls.append({"id": job_id, "content": content, "activity": activity})
+    def progress(self, job_id, content=None, activity=None, attempt=None):
+        call = {"id": job_id, "content": content, "activity": activity}
+        if attempt:
+            call["attempt"] = attempt
+        self.progress_calls.append(call)
         return {"ok": True, "cancel": False}
 
-    def done(self, job_id, content, claude_session=None, error=None):
+    def done(self, job_id, content, claude_session=None, error=None, **extra):
         self.done_calls.append({"id": job_id, "content": content, "claude_session": claude_session, "error": error})
+        self.done_extra.append(extra)
 
 
 class FakeRunner:
@@ -309,7 +313,7 @@ def test_success_without_text_still_finishes_the_job(tmp_path):
 @pytest.mark.parametrize("code,tries", [(400, 1), (409, 1), (502, 3)])
 def test_done_does_not_retry_client_errors(tmp_path, code, tries):
     class Rejecting(FakeClient):
-        def done(self, job_id, content, claude_session=None, error=None):
+        def done(self, job_id, content, claude_session=None, error=None, **extra):
             self.done_calls.append(job_id)
             raise urllib.error.HTTPError("http://x", code, "no", {}, None)
 
@@ -319,20 +323,21 @@ def test_done_does_not_retry_client_errors(tmp_path, code, tries):
     assert len(client.done_calls) == tries
 
 
-def test_chat_jobs_heartbeat_every_heartbeat_s_and_comment_jobs_do_not(tmp_path):
+def test_every_job_heartbeats_with_its_attempt_from_the_claim_on(tmp_path):
     def silent(cmd, stdin, cwd, on_line, timeout_s, stop=None):
         time.sleep(0.45)
         on_line(json.dumps(result("ok", "s")) + "\n")
         return ProcResult(0, "")
 
-    for job, beats in [(chat_job(), range(3, 6)), ({**chat_job(), "kind": "comment", "page": {"id": "p", "content": ""}},
-                                                   range(0, 1))]:
+    comment = {**chat_job(), "kind": "comment", "page": {"id": "p", "content": ""}}
+    for job in [chat_job(attempt="a1"), {**comment, "attempt": "a1"}]:
         client = FakeClient([job])
         h = host(tmp_path, client, silent, Clock())
         h.heartbeat_s = 0.1  # 0.45 s of silence: beats at 0.1, 0.2, 0.3, 0.4
         h.run_once()
-        assert len(client.progress_calls) in beats
-        assert len(client.done_calls) == 1
+        assert 3 <= len(client.progress_calls) <= 5
+        assert all(c["attempt"] == "a1" for c in client.progress_calls)
+        assert client.done_extra[0]["attempt"] == "a1" and len(client.done_calls) == 1
 
 
 def test_tool_steps_become_activity_with_status_from_tool_results(tmp_path):
@@ -347,33 +352,65 @@ def test_tool_steps_become_activity_with_status_from_tool_results(tmp_path):
         (0.6, tool_use("u5", "WebFetch", {"url": "https://www.example.com/a/b/?q=1", "prompt": "summarise"})),
         (0.7, tool_use("u6", "Bash", {"command": "ls"})), (0.8, think()),
         (1.5, tool_result("u1")), (1.6, tool_result("u2", error="page not found")),
+        (1.7, tool_result("u6", error="Permission to use Bash has been denied because Claude Code is running in "
+                                      "don't ask mode.")),
         (3.0, say("Done.")), (3.1, result("Done.", "s-1"))], 0, ""))
     client = FakeClient([chat_job()])
     before = int(time.time() * 1000)
     host(tmp_path, client, runner, clock).run_once()
-    # 1.5 s is the first post (search done); 1.6 s is throttled; 3.0 s posts the text and the error.
+    # 1.5 s is the first post (search done); 1.6 and 1.7 s are throttled; 3.0 s posts the text and the error.
     assert [c["content"] for c in client.progress_calls] == ["", "Done."]
     first, last = client.progress_calls[0]["activity"], client.progress_calls[1]["activity"]
     assert [a.get("status") for a in first][:3] == [None, "done", "running"]
     assert all(before <= a["at"] <= int(time.time() * 1000) for a in last)
     assert [{k: v for k, v in a.items() if k != "at"} for a in last] == [
-        {"kind": "think", "label": "Tænker"},  # thinking shows once per turn
-        {"kind": "search", "label": ("Søger på nettet: " + query.strip())[:199] + "…", "status": "done"},
-        {"kind": "write", "label": "Opdaterer side: p9", "status": "error", "detail": "page not found"},
+        {"kind": "think", "label": "Thinking"},  # thinking shows once per turn
+        {"kind": "search", "label": ("Searching the web: " + query.strip())[:199] + "…", "status": "done"},
+        {"kind": "write", "label": "Updating page", "status": "error", "detail": "page not found"},  # no raw id
         {"kind": "airtable", "label": "Airtable: list_records Deals", "status": "running"},
-        {"kind": "files", "label": "Skriver fil: notes.md", "status": "running"},
-        {"kind": "fetch", "label": "Læser: example.com/a/b", "detail": "https://www.example.com/a/b/?q=1",
+        {"kind": "files", "label": "Writing file: notes.md", "status": "running"},
+        {"kind": "fetch", "label": "Reading: example.com/a/b", "detail": "https://www.example.com/a/b/?q=1",
          "status": "running"},
-        {"kind": "other", "label": "Bash", "status": "running"},
-    ]
+    ]  # the denied Bash call did nothing, so it is not shown
     assert len(last[1]["label"]) == 200
     assert client.done_calls[0]["content"] == "Done."
 
 
+def test_steps_name_pages_by_title_once_the_run_has_seen_them(tmp_path):
+    clock = Clock()
+    page = json.dumps({"id": "Mt3c", "title": "Agents & the root MCP", "content": "<p>x</p>"})
+    search = json.dumps({"count": 1, "results": [{"id": "Qx1", "title": "Pipeline", "snippet": "…"}]})
+    runner = FakeRunner(clock, ([
+        (0.0, init("s-1")),
+        (0.1, tool_use("u1", "mcp__root__root_read_page", {"id": "Mt3c"})),
+        (0.2, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "u1",
+                                                        "content": [{"type": "text", "text": page}]}]}}),
+        (0.3, tool_use("u2", "mcp__root__root_search", {"query": "pipeline"})),
+        (0.4, {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "u2",
+                                                        "content": [{"type": "text", "text": search}]}]}}),
+        (0.5, tool_use("u3", "mcp__root__root_update_page", {"id": "Qx1", "content": "<p>y</p>"})),
+        (0.6, tool_use("u4", "mcp__root__root_comment", {"page_id": "Home1", "body": "hi"})),
+        (2.0, say("Done.")), (2.1, result("Done.", "s-1"))], 0, ""))
+    client = FakeClient([chat_job(page={"id": "Home1", "title": "Home", "content": ""})])
+    host(tmp_path, client, runner, clock).run_once()
+    assert [a["label"] for a in client.progress_calls[-1]["activity"]] == [
+        "Reading page: Agents & the root MCP", "Searching root: pipeline", "Updating page: Pipeline",
+        "Commenting on page: Home"]
+
+
+def test_done_reports_cost_and_model(tmp_path):
+    clock = Clock()
+    runner = FakeRunner(clock, ([(0, {**init("s-1"), "model": "claude-sonnet-4-5"}),
+                                 (1, {**result("ok", "s-1"), "total_cost_usd": 0.0123})], 0, ""))
+    client = FakeClient([chat_job(attempt="a1")])
+    host(tmp_path, client, runner, clock).run_once()
+    assert client.done_extra == [{"attempt": "a1", "cost_usd": 0.0123, "model": "claude-sonnet-4-5"}]
+
+
 def test_cancel_from_progress_stops_claude_and_sends_nothing_more(tmp_path):
     class Stopped(FakeClient):
-        def progress(self, job_id, content=None, activity=None):
-            super().progress(job_id, content, activity)
+        def progress(self, job_id, content=None, activity=None, attempt=None):
+            super().progress(job_id, content, activity, attempt)
             return {"ok": True, "cancel": True}
 
     clock, seen = Clock(), {}
@@ -393,7 +430,7 @@ def test_cancel_from_progress_stops_claude_and_sends_nothing_more(tmp_path):
     h.heartbeat_s = 0.05
     h.run_once()
     assert seen["stopped"]
-    assert [a["label"] for a in client.progress_calls[0]["activity"]] == ["Søger på nettet: pm"]
+    assert [a["label"] for a in client.progress_calls[0]["activity"]] == ["Searching the web: pm"]
     assert len(client.progress_calls) == 1 and client.done_calls == []
     assert "job j1: cancelled" in logs
 
@@ -414,10 +451,96 @@ def test_progress_sends_only_the_given_fields(monkeypatch):
 
     monkeypatch.setattr(chat.urllib.request, "urlopen", urlopen)
     client = RootAgentClient("https://root.test", "rk_x")
-    activity = [{"kind": "think", "label": "Tænker", "at": 1}]
+    activity = [{"kind": "think", "label": "Thinking", "at": 1}]
     assert client.progress("j1", activity=activity) == {"ok": True, "cancel": True}
     client.progress("j1", content="hi")
-    client.progress("j1", content="", activity=activity)
-    assert bodies == [("https://root.test/api/agent/jobs/j1/progress", {"activity": activity}),
-                      ("https://root.test/api/agent/jobs/j1/progress", {"content": "hi"}),
-                      ("https://root.test/api/agent/jobs/j1/progress", {"content": "", "activity": activity})]
+    client.progress("j1", content="", activity=activity, attempt="a1")
+    client.done("j1", "ok", claude_session="s", attempt="a1", cost_usd=0.0, model="claude-sonnet-4-5")
+    client.done("j1", "", error="boom")
+    url = "https://root.test/api/agent/jobs/j1/"
+    assert bodies == [(url + "progress", {"activity": activity}),
+                      (url + "progress", {"content": "hi"}),
+                      (url + "progress", {"content": "", "activity": activity, "attempt": "a1"}),
+                      (url + "done", {"content": "ok", "claude_session": "s", "attempt": "a1", "model": "claude-sonnet-4-5",
+                                      "cost_usd": 0.0}),
+                      (url + "done", {"content": "", "error": "boom"})]
+
+
+def test_loop_runs_up_to_max_parallel_jobs_at_once(tmp_path):
+    jobs = [chat_job(id=f"j{i}", thread_id=f"t{i}") for i in range(4)]
+    lock, running, peak, release = threading.Lock(), [0], [0], threading.Event()
+
+    def slow(cmd, stdin, cwd, on_line, timeout_s, stop=None):
+        with lock:
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        release.wait(5)
+        with lock:
+            running[0] -= 1
+        on_line(json.dumps(result("ok", "s")) + "\n")
+        return ProcResult(0, "")
+
+    class Queue(FakeClient):
+        def next_job(self, wait=25):
+            if self.jobs:
+                return self.jobs.pop(0)
+            raise urllib.error.URLError("no more jobs in this test")
+
+    class Stop(Exception):
+        pass
+
+    def sleep(s):
+        if len(client.done_calls) == 4:
+            raise Stop
+        time.sleep(0.01)
+
+    client = Queue(jobs)
+    h = host(tmp_path, client, slow, Clock())
+    h.sleep = sleep
+    threading.Timer(0.3, release.set).start()  # by then three jobs run and the fourth waits for a slot
+    with pytest.raises(Stop):
+        h.loop()
+    assert peak[0] == 3
+    assert sorted(c["id"] for c in client.done_calls) == ["j0", "j1", "j2", "j3"]
+
+
+def test_superseded_attempt_stops_claude_and_does_not_finish_the_job(tmp_path):
+    class Superseded(FakeClient):
+        def progress(self, job_id, content=None, activity=None, attempt=None):
+            super().progress(job_id, content, activity, attempt)
+            return {"ok": False, "cancel": True, "superseded": True}
+
+    def working(cmd, stdin, cwd, on_line, timeout_s, stop=None):
+        stopped = stop.wait(5)
+        return ProcResult(-15 if stopped else 0, "")
+
+    logs = []
+    client = Superseded([chat_job(attempt="old")])
+    h = host(tmp_path, client, working, Clock())
+    h.log, h.heartbeat_s = logs.append, 0.05
+    h.run_once()
+    assert client.progress_calls[0]["attempt"] == "old" and client.done_calls == []
+    assert "job j1: superseded by a newer attempt" in logs
+
+
+def test_job_handed_out_again_while_running_here_is_not_run_twice(tmp_path):
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def working(cmd, stdin, cwd, on_line, timeout_s, stop=None):
+        calls.append(cmd)
+        started.set()
+        release.wait(5)
+        on_line(json.dumps(result("ok", "s")) + "\n")
+        return ProcResult(0, "")
+
+    client = FakeClient([chat_job(attempt="a1")])
+    h = host(tmp_path, client, working, Clock())
+    first = threading.Thread(target=h.run_once)
+    first.start()
+    assert started.wait(5)
+    client.jobs.append(chat_job(attempt="a2"))  # root re-queued it after a heartbeat gap and handed it out again
+    assert h.claim() is None
+    release.set()
+    first.join(5)
+    assert len(calls) == 1
+    assert [e["attempt"] for e in client.done_extra] == ["a2"]

@@ -32,8 +32,10 @@ allowed_tools = [
 # no credentials, no page deletes, private stays private). Use system_prompt_file for a longer text.
 system_prompt = "Your owner is Esben Kran (esben@juniper.xyz). Prefer short answers. Search root before you answer questions about Juniper."
 # system_prompt_file = "~/.perennial/chat-system.md"
-# A Claude run is killed after this many seconds (root re-queues a job after 15 min).
+# A Claude run is killed after this many seconds. Root re-queues a job only when its heartbeats stop for 3 min.
 timeout_s = 840
+# Jobs answered at once. Root still hands out at most one job per chat thread, and comment jobs one at a time.
+max_parallel = 3
 # Claude Code binary.
 claude = "claude"
 
