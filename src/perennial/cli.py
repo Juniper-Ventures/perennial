@@ -96,7 +96,10 @@ def main(argv: list[str] | None = None) -> int:
         if a.once:
             print("answered one job" if host.run_once() else "no job")
         else:
-            print(f"{ccfg.agent_name}: chat host polling {ccfg.root_url}", flush=True)
+            prompt = f"{len(ccfg.system_prompt)} chars" + (f" from {ccfg.system_prompt_file}" if ccfg.system_prompt_file
+                                                           else " inline")
+            host.log(f"{ccfg.agent_name}: chat host polling {ccfg.root_url} (model {ccfg.model}, up to "
+                     f"{ccfg.max_parallel} jobs at once, owner prompt {prompt})")
             host.loop()
         return 0
     if a.cmd == "export-root":
